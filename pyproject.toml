@@ -1,0 +1,30 @@
+[project]
+name = "fastcgc"
+version = "0.1.0"
+description = "Vectorized fastC-GC and fastC-GC* estimators"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "matplotlib>=3.11.0",
+    "numpy>=2.5.0",
+    "pandas>=3.0.3",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.18.0",
+    "tqdm>=4.68.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["fastCGC*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

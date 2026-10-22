@@ -1,0 +1,33 @@
+# OS, editor, and local agent state
+.DS_Store
+.claude/
+.codex/
+.agents/
+.omx/
+.idea/
+.vscode/
+
+# Python environments, caches, and build products
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+.venv-*/
+build/
+dist/
+*.egg-info/
+
+# Notebook intermediates
+.ipynb_checkpoints/
+
+# Local upstream checkouts and generated experiment artifacts
+/external/
+/data/
+
+# Retired runtime and memory studies kept only in the local working copy
+/experiments/benchmarks/analyze_linear_methodology.py
+/experiments/benchmarks/benchmark_linear_methodology.py

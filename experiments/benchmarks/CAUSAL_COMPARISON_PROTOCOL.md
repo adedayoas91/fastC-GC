@@ -377,9 +377,10 @@ project's `comparison` extra pins Tigramite and Causal Chambers in the active
 virtual environment. Each notebook verifies the installed distribution version
 before importing it. The `conventional-cgc` extra installs the authors' Git
 distribution at its recorded commit and supplies its undeclared runtime
-dependencies. It is intended for the Apple Silicon analysis host, where Numba
-provides a CPython 3.14 wheel. Resolved package versions and platform details
-are recorded with each run.
+dependencies, including the PyTorch import required by CDT 0.6.0 package
+initialization. It is intended for the Apple Silicon analysis host, where Numba
+and PyTorch provide CPython 3.14 wheels. Resolved package versions and platform
+details are recorded with each run.
 
 Other external repositories retain isolated environments. A method that cannot
 run unmodified on Python 3.14 is either reported in a clearly labeled exception

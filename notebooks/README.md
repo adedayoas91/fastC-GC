@@ -78,8 +78,9 @@ remaining extras install `tigramite==5.2.10.1`, `causalchamber==0.2.8`, and
 conventional c-GC/c-GC* from the pinned authors' Git commit. The notebooks
 reject a missing or different version or source revision instead of searching
 another project's `site-packages` directory. The conventional c-GC extra is
-intended for the Apple Silicon analysis machine because its Numba dependency
-provides a CPython 3.14 arm64 wheel.
+also responsible for `torch==2.14.1`, which CDT imports without declaring in
+its package metadata. This extra is intended for the Apple Silicon analysis
+machine because Numba and PyTorch provide CPython 3.14 arm64 wheels there.
 
 Register the synchronized environment once, then select this kernel in Jupyter
 or VS Code. Restart the kernel whenever the environment is resynchronized:

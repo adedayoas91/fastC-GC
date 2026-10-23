@@ -142,6 +142,7 @@ def test_comparison_extra_pins_installable_upstream_packages() -> None:
         "cdt==0.6.0",
         "gc-extension @ git+https://github.com/adedayoas91/causalized-GC.git@575ac1dc67a0282a5ca88bc11a2804df052f674d",
         "numba==0.68.0",
+        "torch==2.14.1",
     }
 
 

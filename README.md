@@ -135,9 +135,10 @@ by PCMCI+ and Bagged PCMCI+, plus `causalchamber==0.2.8` for the Causal Chambers
 reference graph. They also install conventional c-GC/c-GC* directly from commit
 `575ac1dc67a0282a5ca88bc11a2804df052f674d` of the authors' Git repository and
 supply the runtime dependencies omitted from that repository's package
-metadata. The notebooks verify package versions and Git provenance from the
-active kernel environment. The conventional c-GC extra targets the planned
-Apple Silicon machine, where Numba publishes a CPython 3.14 wheel.
+metadata, including `torch==2.14.1`, which CDT imports but does not declare.
+The notebooks verify package versions and Git provenance from the active kernel
+environment. The conventional c-GC extra targets the planned Apple Silicon
+machine, where Numba and PyTorch publish CPython 3.14 wheels.
 
 Register the synchronized environment once, then select this kernel in Jupyter
 or VS Code and restart it after dependency changes:

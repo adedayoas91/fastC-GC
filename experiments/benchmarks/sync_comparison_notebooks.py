@@ -1,9 +1,10 @@
 """Generate the dataset-first causal-comparison notebook matrix.
 
 The notebooks are deliberately thin launch surfaces. Local study methods call
-the installed ``fastCGC`` package, while comparison methods call unchanged
-entry points from verified author checkouts. No external estimator is copied
-into this repository.
+the installed ``fastCGC`` package. Comparison methods use pinned installed
+distributions when upstream is packageable and verified source checkouts only
+when no usable package exists. No external estimator is copied into this
+repository.
 """
 
 from __future__ import annotations
@@ -17,8 +18,7 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 NOTEBOOK_ROOT = PROJECT_ROOT / "notebooks"
 
-TIGRAMITE_URL = "https://github.com/jakobrunge/tigramite.git"
-TIGRAMITE_COMMIT = "ff3ff13e1481073b8c5833a6fde1c304627a208e"
+TIGRAMITE_VERSION = "5.2.10.1"
 UNN_URL = "https://github.com/jarrycyx/UNN.git"
 UNN_COMMIT = "2212724cce8a7752db564089a7537fecedb0e36d"
 BAGGED_PCMCI_DATA_URL = (
@@ -29,7 +29,7 @@ BAGGED_PCMCI_DATA_COMMIT = "8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9"
 CAUSAL_CHAMBER_PACKAGE_URL = (
     "https://github.com/juangamella/causal-chamber-package.git"
 )
-CAUSAL_CHAMBER_PACKAGE_COMMIT = "9fb5d82e391bb91a89a64f2e1c9b6ae8e7aed6d6"
+CAUSAL_CHAMBER_VERSION = "0.2.8"
 CAUSAL_CHAMBER_DATA_URL = (
     "https://causalchamber.s3.eu-central-1.amazonaws.com/"
     "downloadables/wt_walks_v1.zip"
@@ -122,25 +122,25 @@ METHODS = (
         "cgc",
         "c-GC.ipynb",
         "conventional c-GC",
-        "adedayoas91/causalized-GC",
+        "gc-extension from adedayoas91/causalized-GC (installed Git distribution)",
     ),
     MethodSpec(
         "cgc-star",
         "c-GC-star.ipynb",
         "conventional c-GC*",
-        "adedayoas91/causalized-GC",
+        "gc-extension from adedayoas91/causalized-GC (installed Git distribution)",
     ),
     MethodSpec(
         "pcmci-plus",
         "PCMCI-plus.ipynb",
         "PCMCI+",
-        "jakobrunge/tigramite",
+        f"tigramite=={TIGRAMITE_VERSION} (installed distribution)",
     ),
     MethodSpec(
         "bagged-pcmci-plus",
         "Bagged-PCMCI-plus.ipynb",
         "Bagged PCMCI+",
-        "jakobrunge/tigramite",
+        f"tigramite=={TIGRAMITE_VERSION} (installed distribution)",
     ),
     MethodSpec(
         "cuts-plus",
@@ -300,15 +300,9 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
 
 
 CONVENTIONAL_RUNNER = r'''
-from fastCGC.experiments.upstream import load_conventional_cgc
+from fastCGC.experiments.upstream import load_installed_conventional_cgc
 
-UPSTREAM_ROOT = Path(
-    os.environ.get(
-        "CAUSALIZED_GC_ROOT",
-        PROJECT_ROOT / "external" / "causalized-GC",
-    )
-).expanduser()
-GcStar, UPSTREAM_REVISION = load_conventional_cgc(UPSTREAM_ROOT)
+GcStar, UPSTREAM_REVISION = load_installed_conventional_cgc()
 SOURCE_REVISION = UPSTREAM_REVISION.commit
 
 
@@ -339,24 +333,16 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
 
 
 PCMCI_RUNNER = f'''
-from fastCGC.experiments.upstream import verify_upstream_revision
+from fastCGC.experiments.upstream import verify_installed_distribution
 
-UPSTREAM_ROOT = Path(
-    os.environ.get("TIGRAMITE_ROOT", PROJECT_ROOT / "external" / "tigramite")
-).expanduser()
-UPSTREAM_REVISION = verify_upstream_revision(
-    UPSTREAM_ROOT,
-    expected_url="{TIGRAMITE_URL}",
-    expected_commit="{TIGRAMITE_COMMIT}",
+SOURCE_REVISION = verify_installed_distribution(
+    "tigramite",
+    expected_version="{TIGRAMITE_VERSION}",
 )
-if str(UPSTREAM_ROOT) not in sys.path:
-    sys.path.insert(0, str(UPSTREAM_ROOT))
 
 from tigramite import data_processing as pp
 from tigramite.independence_tests.parcorr import ParCorr
 from tigramite.pcmci import PCMCI
-
-SOURCE_REVISION = UPSTREAM_REVISION.commit
 
 
 def run_native(series, fit_order, algorithm_seed, run_dir):
@@ -380,24 +366,16 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
 
 
 BAGGED_PCMCI_RUNNER = f'''
-from fastCGC.experiments.upstream import verify_upstream_revision
+from fastCGC.experiments.upstream import verify_installed_distribution
 
-UPSTREAM_ROOT = Path(
-    os.environ.get("TIGRAMITE_ROOT", PROJECT_ROOT / "external" / "tigramite")
-).expanduser()
-UPSTREAM_REVISION = verify_upstream_revision(
-    UPSTREAM_ROOT,
-    expected_url="{TIGRAMITE_URL}",
-    expected_commit="{TIGRAMITE_COMMIT}",
+SOURCE_REVISION = verify_installed_distribution(
+    "tigramite",
+    expected_version="{TIGRAMITE_VERSION}",
 )
-if str(UPSTREAM_ROOT) not in sys.path:
-    sys.path.insert(0, str(UPSTREAM_ROOT))
 
 from tigramite import data_processing as pp
 from tigramite.independence_tests.parcorr import ParCorr
 from tigramite.pcmci import PCMCI
-
-SOURCE_REVISION = UPSTREAM_REVISION.commit
 
 
 def run_native(series, fit_order, algorithm_seed, run_dir):
@@ -622,9 +600,10 @@ This notebook is the `{dataset.key}` copy of the `{method.key}` experiment.
 It reads the same frozen, hash-verified bundles as every other method in this
 directory and writes one atomic checkpoint per completed dataset fit.
 
-Source: **{method.source}**. External methods call a pinned authors' checkout;
-their estimator code is neither copied nor reimplemented here. Native arrays
-are saved before {downstream}. {evaluation_statement}
+Source: **{method.source}**. Comparison methods use a pinned installed
+distribution when upstream is packageable; repository-only methods call a
+verified checkout. Their estimator code is neither copied nor reimplemented
+here. Native arrays are saved before {downstream}. {evaluation_statement}
 '''
     return _notebook(
         [
@@ -1247,22 +1226,18 @@ print(f"Created {{created}} new DREAM3 bundles. Rerun to resume.")
 
 
 CAUSAL_CHAMBER_PREPARE = f'''
+from fastCGC.experiments.upstream import verify_installed_distribution
+
 DATASET_KEY = "causalChamber"
 DATASET_DIR = (
     PROJECT_ROOT / "data" / "shared" / "causal-comparison"
     / DATASET_KEY / "datasets"
 )
-PACKAGE_ROOT = Path(
-    os.environ.get(
-        "CAUSAL_CHAMBER_PACKAGE_ROOT",
-        PROJECT_ROOT / "external" / "causal-chamber-package",
-    )
-).expanduser()
-PACKAGE_REVISION = verify_upstream_revision(
-    PACKAGE_ROOT,
-    expected_url="{CAUSAL_CHAMBER_PACKAGE_URL}",
-    expected_commit="{CAUSAL_CHAMBER_PACKAGE_COMMIT}",
+PACKAGE_REVISION = verify_installed_distribution(
+    "causalchamber",
+    expected_version="{CAUSAL_CHAMBER_VERSION}",
 )
+from causalchamber.ground_truth import graph
 ARCHIVE_PATH = Path(
     os.environ.get(
         "CAUSAL_CHAMBER_ARCHIVE",
@@ -1285,14 +1260,7 @@ EXPERIMENTS = ("actuators_random_walk_1",)
 FIT_ORDER = 10
 MAX_NEW_DATASETS: int | None = None
 
-reference_path = (
-    PACKAGE_ROOT
-    / "causalchamber"
-    / "ground_truth"
-    / "adjacencies"
-    / "adjacency_wt_standard.csv"
-)
-reference_frame = pd.read_csv(reference_path, index_col=0)
+reference_frame = graph("wt", "standard")
 reference_graph = reference_frame.loc[list(VARIABLES), list(VARIABLES)].to_numpy(
     dtype=bool
 )
@@ -1326,7 +1294,7 @@ with zipfile.ZipFile(ARCHIVE_PATH) as archive:
                 "data_archive_sha256": "{CAUSAL_CHAMBER_DATA_SHA256}",
                 "data_license": "CC BY 4.0",
                 "ground_truth_package_source": "{CAUSAL_CHAMBER_PACKAGE_URL}",
-                "upstream_commit": PACKAGE_REVISION.commit,
+                "upstream_version": PACKAGE_REVISION,
                 "experiment": experiment,
                 "fit_order": FIT_ORDER,
                 "regime": "wind-tunnel-actuator-random-walk",

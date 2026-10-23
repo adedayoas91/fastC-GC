@@ -79,23 +79,29 @@ def test_study_adapters_use_lag_source_target_orientation() -> None:
         assert np.all(np.isfinite(result.lag_scores))
 
 
-def test_method_manifest_keeps_comparison_methods_external() -> None:
+def test_method_manifest_tracks_upstream_execution_boundaries() -> None:
     by_key = {spec.key: spec for spec in METHOD_SPECS}
 
     assert by_key["fast-cgc"].display_name == "fastC-GC"
     assert by_key["fast-cgc-star"].display_name == "fastC-GC*"
 
     for method in (
-        "cgc",
-        "cgc-star",
         "var-gc",
         "lasso-var",
-        "pcmci-plus",
-        "bagged-pcmci-plus",
         "cuts-plus",
         "var-lingam",
     ):
         assert by_key[method].track.startswith("external-repository")
+        assert not by_key[method].runnable
+
+    for method in ("cgc", "cgc-star"):
+        assert by_key[method].track == "installed-vcs-aggregate"
+        assert by_key[method].dependency.startswith("gc-extension @ git+")
+        assert not by_key[method].runnable
+
+    for method in ("pcmci-plus", "bagged-pcmci-plus"):
+        assert by_key[method].track == "installed-package"
+        assert by_key[method].dependency == "tigramite==5.2.10.1"
         assert not by_key[method].runnable
 
     assert by_key["mssd"].track == "pending-upstream"
@@ -114,7 +120,7 @@ def test_external_comparison_method_has_no_local_fitter() -> None:
         seed=19,
     )
 
-    with pytest.raises(NotImplementedError, match="pinned Tigramite checkout"):
+    with pytest.raises(NotImplementedError, match="comparison notebook"):
         fit_method(
             "pcmci-plus",
             dataset.series,

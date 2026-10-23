@@ -154,8 +154,8 @@ def _save_dataset_bundle(
         "coefficient_layout": "lag, target, source",
         "truth_layout": "lag, source, target",
         "external_method_policy": (
-            "Run unchanged code from a pinned author repository; retain the "
-            "native raw output and command before conversion."
+            "Run the pinned upstream package or unchanged code from a pinned "
+            "author repository; retain native raw output before conversion."
         ),
     }
     metadata_path = data_path.with_suffix(".json")
@@ -486,8 +486,9 @@ def _run(args: argparse.Namespace) -> int:
             "auroc": "secondary; only continuous scores are accepted",
         },
         "external_method_policy": (
-            "Clone and pin each authors' repository, run its native code on "
-            "the exported datasets, and preserve raw outputs before conversion."
+            "Use a pinned installed distribution when one exists; otherwise "
+            "clone and pin the authors' repository. Preserve native outputs "
+            "before conversion."
         ),
     }
     (output_dir / "protocol.json").write_text(
@@ -504,6 +505,8 @@ def _list_methods() -> int:
     for spec in METHOD_SPECS:
         if spec.runnable:
             state = "local runner"
+        elif spec.track.startswith("installed-"):
+            state = "notebook pkg"
         elif spec.track.startswith("external-repository"):
             state = "external repo"
         else:

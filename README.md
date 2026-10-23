@@ -9,9 +9,10 @@ The `fastC-` names are reserved for this portable NumPy/SciPy implementation.
 Separate NVIDIA/cuML implementations retain the conventional c-GC and c-GC*
 names and are outside this repository.
 
-The project targets CPython 3.14. External comparison methods use isolated
-environments supplied by their own repositories; those checkouts and
-environments are not committed here.
+The project targets CPython 3.14. Comparison software is installed in the
+active virtual environment when an official package is available. Source
+checkouts are used only for repository-only methods and generators; they are
+not committed here.
 
 ## Package layout
 
@@ -121,6 +122,21 @@ uv run python experiments/simulations/nonlinear/validate_nonlinear_backends.py
 uv run python experiments/simulations/nonlinear/benchmark_dependence_backends.py
 ```
 
+Install the comparison dependencies into `fastC-GC/.venv` with:
+
+```bash
+uv sync --extra dev --extra comparison --extra conventional-cgc
+```
+
+This installs the pinned `tigramite==5.2.10.1` distribution used by PCMCI+ and
+Bagged PCMCI+, plus `causalchamber==0.2.8` for the Causal Chambers reference
+graph. It also installs conventional c-GC/c-GC* directly from commit
+`575ac1dc67a0282a5ca88bc11a2804df052f674d` of the authors' Git repository and
+supplies the runtime dependencies omitted from that repository's package
+metadata. The notebooks verify package versions and Git provenance from the
+active kernel environment. The conventional c-GC extra targets the planned
+Apple Silicon machine, where Numba publishes a CPython 3.14 wheel.
+
 ## Cross-method causal-structure comparison
 
 The prespecified method list, graph convention, controlled recovery metrics,
@@ -135,33 +151,16 @@ Discovery method is recorded as pending because its advertised official source
 repository was empty when checked; DYNOTEARS is historical-only rather than a
 headline baseline.
 
-Comparison algorithms are not implemented in this repository. Each is run from
-a pinned checkout of its authors' repository, using that repository's own
-environment and native entry point.
+Comparison algorithms are not implemented in this repository. PCMCI+ and
+Bagged PCMCI+ use the pinned official Tigramite distribution installed in the
+notebook environment. Conventional c-GC/c-GC* use the pinned Git distribution
+installed in the same environment. Repository-only methods use their authors'
+unchanged source at a pinned revision.
 
-The conventional c-GC and c-GC* notebooks use the authors' repository directly:
-
-```bash
-git clone https://github.com/adedayoas91/causalized-GC.git external/causalized-GC
-git -C external/causalized-GC checkout 575ac1dc67a0282a5ca88bc11a2804df052f674d
-```
-
-The local `external/` directory is ignored by Git. If the checkout lives
-elsewhere, set `CAUSALIZED_GC_ROOT` before starting a notebook. Run the
-conventional implementation in an isolated environment created from its own
-repository, and record that environment with the resulting experiment:
+The remaining repository-only method and dataset helpers require these pinned
+author checkouts:
 
 ```bash
-export CAUSALIZED_GC_ROOT=/absolute/path/to/causalized-GC
-git -C "$CAUSALIZED_GC_ROOT" rev-parse HEAD
-```
-
-The PCMCI+ family and CUTS+ notebooks use similarly pinned author checkouts:
-
-```bash
-git clone https://github.com/jakobrunge/tigramite.git external/tigramite
-git -C external/tigramite checkout ff3ff13e1481073b8c5833a6fde1c304627a208e
-
 git clone https://github.com/jarrycyx/UNN.git external/UNN
 git -C external/UNN checkout 2212724cce8a7752db564089a7537fecedb0e36d
 
@@ -171,24 +170,19 @@ git clone \
 git -C external/debeire24clear_Bagged_TimeSeries_Causality checkout \
   8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9
 
-git clone \
-  https://github.com/juangamella/causal-chamber-package.git \
-  external/causal-chamber-package
-git -C external/causal-chamber-package checkout \
-  9fb5d82e391bb91a89a64f2e1c9b6ae8e7aed6d6
-
 git clone https://github.com/CausalRivers/causalrivers.git external/causalrivers
 git -C external/causalrivers checkout \
   a30154fbb9a2e03bae133c643d7e978df63b3766
 ```
 
-Set `TIGRAMITE_ROOT`, `UNN_ROOT`, `BAGGED_PCMCI_DATA_ROOT`,
-`CAUSAL_CHAMBER_PACKAGE_ROOT`, or `CAUSAL_RIVERS_ROOT` when a checkout is stored
-elsewhere. Each notebook verifies the remote URL and exact commit before
-importing a native entry point, data generator, reference graph, or sampler.
+Set `UNN_ROOT`, `BAGGED_PCMCI_DATA_ROOT`, or `CAUSAL_RIVERS_ROOT` when one of
+these checkouts is stored elsewhere. Each repository-backed notebook verifies
+the remote URL and exact commit before importing a native entry point, data
+generator, or sampler.
 
-The notebook loader verifies both the remote URL and the recorded commit before
-importing `GcStar`. The upstream estimator remains unchanged.
+The conventional notebook loader verifies the installed distribution's PEP 610
+Git URL and commit before importing `GcStar`. The upstream estimator remains
+unchanged.
 
 List all selected methods and their execution tracks:
 
@@ -205,11 +199,11 @@ uv run --extra dev python experiments/benchmarks/benchmark_causal_methods.py \
 
 The runner writes method-neutral `.npz` bundles under
 `data/outputs/causal-comparison/datasets/` and evaluates fastC-GC and
-fastC-GC* in isolated subprocesses. Run each cloned comparison repository
-against those bundles and preserve its native outputs before converting graph
-orientation for shared scoring. The study compares graph-recovery efficacy; it
-does not collect elapsed time, memory use, or hardware rankings. The exact
-repository policy is in the comparison protocol.
+fastC-GC* in isolated subprocesses. Run each comparison notebook against those
+bundles and preserve its native outputs before converting graph orientation for
+shared scoring. The study compares graph-recovery efficacy; it does not collect
+elapsed time, memory use, or hardware rankings. The exact upstream software
+policy is in the comparison protocol.
 
 For the dataset-first notebooks, `00-prepare-data.ipynb` writes the frozen
 bundles under `data/shared/causal-comparison/<dataset>/datasets/`. Each method

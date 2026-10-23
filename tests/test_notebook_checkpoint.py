@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tomllib
 
 import numpy as np
 import pytest
 
+from fastCGC.experiments import upstream as upstream_module
 from fastCGC.experiments.notebook_checkpoint import (
     checkpoint_path,
     configuration_hash,
@@ -20,6 +22,8 @@ from fastCGC.experiments.notebook_checkpoint import (
 from fastCGC.experiments.upstream import (
     CAUSALIZED_GC_COMMIT,
     CAUSALIZED_GC_URL,
+    verify_installed_distribution,
+    verify_installed_vcs_distribution,
 )
 
 
@@ -121,3 +125,69 @@ def test_project_requires_python_314() -> None:
 
     assert (PROJECT_ROOT / ".python-version").read_text().strip() == "3.14"
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
+
+
+def test_comparison_extra_pins_installable_upstream_packages() -> None:
+    project = tomllib.loads(
+        (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert set(project["project"]["optional-dependencies"]["comparison"]) == {
+        "causalchamber==0.2.8",
+        "tigramite==5.2.10.1",
+    }
+    assert set(
+        project["project"]["optional-dependencies"]["conventional-cgc"]
+    ) == {
+        "cdt==0.6.0",
+        "gc-extension @ git+https://github.com/adedayoas91/causalized-GC.git@575ac1dc67a0282a5ca88bc11a2804df052f674d",
+        "numba==0.68.0",
+    }
+
+
+def test_installed_distribution_revision_is_versioned() -> None:
+    assert verify_installed_distribution(
+        "pytest",
+        expected_version=pytest.__version__,
+    ) == f"pytest=={pytest.__version__}"
+
+    with pytest.raises(RuntimeError, match="expected 0.0.0"):
+        verify_installed_distribution("pytest", expected_version="0.0.0")
+
+
+def test_installed_git_distribution_verifies_pep610_provenance(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FakeDistribution:
+        def read_text(self, filename: str) -> str | None:
+            assert filename == "direct_url.json"
+            return json.dumps(
+                {
+                    "url": CAUSALIZED_GC_URL,
+                    "vcs_info": {
+                        "vcs": "git",
+                        "commit_id": CAUSALIZED_GC_COMMIT,
+                    },
+                }
+            )
+
+        def locate_file(self, path: str) -> Path:
+            assert path == ""
+            return tmp_path
+
+    monkeypatch.setattr(
+        upstream_module,
+        "installed_distribution",
+        lambda name: FakeDistribution(),
+    )
+    revision = verify_installed_vcs_distribution(
+        "gc-extension",
+        expected_url=CAUSALIZED_GC_URL,
+        expected_commit=CAUSALIZED_GC_COMMIT,
+        install_extra="conventional-cgc",
+    )
+
+    assert revision.root == tmp_path
+    assert revision.remote_url == CAUSALIZED_GC_URL
+    assert revision.commit == CAUSALIZED_GC_COMMIT

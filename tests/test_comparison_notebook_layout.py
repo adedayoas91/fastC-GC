@@ -81,12 +81,8 @@ def test_each_method_notebook_has_dataset_and_resume_contract() -> None:
             )
 
 
-def test_external_notebooks_call_pinned_author_checkouts() -> None:
+def test_repository_only_notebooks_call_pinned_author_checkouts() -> None:
     expectations = {
-        "c-GC.ipynb": "load_conventional_cgc",
-        "c-GC-star.ipynb": "load_conventional_cgc",
-        "PCMCI-plus.ipynb": "run_pcmciplus",
-        "Bagged-PCMCI-plus.ipynb": "run_bootstrap_of",
         "CUTS-plus.ipynb": "cuts_plus.main",
     }
     for dataset_root in DATASET_ROOTS.values():
@@ -96,9 +92,36 @@ def test_external_notebooks_call_pinned_author_checkouts() -> None:
             )
             source = _source(notebook)
             assert native_entry_point in source
-            assert "verify_upstream_revision" in source or (
-                native_entry_point == "load_conventional_cgc"
+            assert "verify_upstream_revision" in source
+
+
+def test_conventional_cgc_notebooks_use_installed_git_distribution() -> None:
+    for dataset_root in DATASET_ROOTS.values():
+        for filename in ("c-GC.ipynb", "c-GC-star.ipynb"):
+            notebook = json.loads(
+                (dataset_root / filename).read_text(encoding="utf-8")
             )
+            source = _source(notebook)
+            assert "load_installed_conventional_cgc" in source
+            assert "CAUSALIZED_GC_ROOT" not in source
+            assert "load_conventional_cgc(" not in source
+
+
+def test_tigramite_notebooks_use_installed_distribution() -> None:
+    expectations = {
+        "PCMCI-plus.ipynb": "run_pcmciplus",
+        "Bagged-PCMCI-plus.ipynb": "run_bootstrap_of",
+    }
+    for dataset_root in DATASET_ROOTS.values():
+        for filename, native_entry_point in expectations.items():
+            notebook = json.loads(
+                (dataset_root / filename).read_text(encoding="utf-8")
+            )
+            source = _source(notebook)
+            assert native_entry_point in source
+            assert 'verify_installed_distribution(\n    "tigramite"' in source
+            assert "TIGRAMITE_ROOT" not in source
+            assert "verify_upstream_revision" not in source
 
 
 def test_pending_mssd_notebook_is_not_fabricated() -> None:
@@ -180,7 +203,9 @@ def test_empirical_preparation_uses_verified_official_sources() -> None:
     chamber_source = _source(chamber)
     assert "wt_walks_v1.zip" in chamber_source
     assert "1ef92d39fff7645a9e6e8cd41311e708362606491590a1534c6a5135d207736e" in chamber_source
-    assert "9fb5d82e391bb91a89a64f2e1c9b6ae8e7aed6d6" in chamber_source
+    assert 'verify_installed_distribution(\n    "causalchamber"' in chamber_source
+    assert "from causalchamber.ground_truth import graph" in chamber_source
+    assert "CAUSAL_CHAMBER_PACKAGE_ROOT" not in chamber_source
     assert "reference_graph" in chamber_source
 
     rivers = json.loads(

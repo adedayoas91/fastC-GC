@@ -30,7 +30,7 @@ codebase have been executed rather than left as proposed work.
 |---|---|---|
 | Inactive conditional-screen claim | The manuscript now describes the precision-derived quantity as an analytic diagnostic. The public attributes are `analytic_score_` and `analytic_pvalue_`; the former `screen_*` names remain documented compatibility aliases. `screen_alpha` is explicitly a legacy no-op for the linear profile. | Regression tests compare `screen_alpha=0` and `1`, require full-policy shift provenance, and check full/short-circuit equivalence at fitted thresholds. |
 | Fixed-ridge statistic overclaimed as a Gaussian conditional-independence test | The adjacency theorem is stated only for population-level conditional independence. The Gaussian common-cause counterexample is proved, tested from exact sample moments, and reported over a ridge grid. | The empirical residual correlations agree with the counterexample formula to a maximum absolute error of (2.3\times10^{-15}). |
-| Package and test route not reproducible | The project now uses the standard `src/fastCGC/` layout, keeps estimator implementations in `fastCGC.core`, exposes a stable public namespace, and uses that namespace in tests, scripts, and notebooks. | 114 tests pass directly, both source and wheel distributions build, and an unpacked-wheel fit succeeds from outside the repository. |
+| Package and test route not reproducible | The project now uses the standard `src/fastCGC/` layout, keeps estimator implementations in `fastCGC.core`, exposes a stable public namespace, and uses that namespace in tests, scripts, and notebooks. | 119 tests pass directly, both source and wheel distributions build, and an unpacked-wheel fit succeeds from outside the repository. |
 | No controlled runtime or memory evidence | Superseded by the decision to exclude runtime, memory, hardware, and accelerator rankings from the study. | The active cross-method runner and notebooks record scientific outputs and provenance, not timing or memory endpoints. Older measurements under `data/outputs/linear-methodology/` are historical only. |
 | No policy or ridge ablation | Full/short-circuit and ridge-grid studies were added, including sparse, dense, regular, and near-collinear regimes. | 64 policy rows and 200 ridge rows were analyzed. All paired policy decisions and graph supports agree at the fitted thresholds. |
 | No calibration or graph-wide null evidence | Selected-pair IID and AR(1) null studies and a graph-wide AR(1) null study were added. | 1,000 selected-pair datasets and 200 graph-level datasets are stored with Wilson intervals, discrete-orbit binomial tests, and Holm adjustment. |
@@ -214,7 +214,7 @@ only the linear numerical identities, say “16 collected cases in
 `test_fast_causalised_gc.py`” rather than referring ambiguously to the now much
 larger suite.
 
-**Resolution.** The linear module now has 23 cases and the full suite has 114.
+**Resolution.** The linear module now has 23 cases and the full suite has 119.
 The manuscript reports both counts. The documented command is
 `uv run --extra dev pytest`; it succeeds without a temporary alias. Package
 build and isolated-wheel smoke tests also succeed.
@@ -387,26 +387,30 @@ Final writing observations:
 
 - `uv run --extra dev python -m compileall -q src/fastCGC experiments tests`: passed
   under CPython 3.14.7.
-- `uv run --extra dev pytest -q`: 114 passed under CPython 3.14.7, including 23
+- `.venv/bin/python -m pytest -q`: 119 passed under CPython 3.14.7, including 23
   cases in `tests/test_fast_causalised_gc.py`.
 - Package-layout checks confirm that `src/fastCGC/core/`, `dependence/`, and
   `experiments/` are included in the wheel. Canonical and compatibility imports
   resolve to the same estimator classes, and the obsolete dynamic loader and
   hyphenated module are absent.
-- Causal-comparison boundary check: 40 focused tests passed. An efficacy-only
+- Causal-comparison boundary check: 45 focused tests passed. An efficacy-only
   smoke run wrote two method rows with structural and ranking metrics and no
   elapsed-time, memory, or hardware fields.
 - The project now requires CPython 3.14. The dataset-first matrix contains 36
   simulated or in-silico notebooks and 18 empirical notebooks. They record
   Python and package versions while leaving hardware out of the comparison
   contract. Existing Intel/Python 3.13 results remain historical artifacts.
-- The conventional c-GC checkout and its environment are deliberately excluded
-  from this repository. The notebook loader pins and verifies the upstream URL
-  and commit, while each run records the external environment and platform.
-  Native import and fit smoke tests must still be run on the M5 machine before
-  full experiments begin.
+- Conventional c-GC is installed from the pinned authors' Git revision rather
+  than kept as a project checkout. The notebook loader verifies its PEP 610 URL
+  and commit, while each run records the environment and platform. Native
+  import and fit smoke tests must still be run on the M5 machine before full
+  experiments begin.
+- PCMCI+ and Bagged PCMCI+ now import the pinned official Tigramite
+  distribution from the active virtual environment. The Causal Chambers
+  preparation notebook likewise uses the installed `causalchamber` package;
+  neither requires a source checkout.
 - Conventional c-GC/c-GC* notebooks now load `GcStar` from the authors'
-  repository at commit
+  installed Git distribution at commit
   `575ac1dc67a0282a5ca88bc11a2804df052f674d`. Their shared datasets are
   hash-verified, their native arrays are preserved, and completed fits resume
   from provenance-checked checkpoints. No conventional estimator code is copied
@@ -440,11 +444,11 @@ Final writing observations:
 2. **Comparison study now specified and updated from recent literature (20
    October 2026).** The headline external CSL methods are PCMCI+, Bagged PCMCI+,
    and CUTS+. None is implemented in this repository. Conventional c-GC/c-GC* and
-   every external CSL or classical control are run from pinned author or
-   upstream repositories in separate environments. The local runner evaluates
-   only fastC-GC/fastC-GC*. Generated-data bundles carry hashes and truth
-   arrays; empirical bundles carry hashes and may include a separately labelled
-   reference network. CUTS+ belongs in the any-lag aggregate table because its
+   every external CSL or classical control is run from a pinned official
+   distribution when available, or otherwise from a pinned author repository.
+   The local runner evaluates only fastC-GC/fastC-GC*. Generated-data bundles
+   carry hashes and truth arrays; empirical bundles carry hashes and may include
+   a separately labelled reference network. CUTS+ belongs in the any-lag aggregate table because its
    official implementation returns an aggregate variable graph. The 2026
    AISTATS Stationarity-Aware Discovery method is the newest same-estimand
    candidate found, but its advertised official repository was empty when

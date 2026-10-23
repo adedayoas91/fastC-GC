@@ -38,9 +38,10 @@ Simulation and in-silico directories end with
 Run `00-prepare-data.ipynb` first. It creates or validates the immutable dataset
 bundles used by every method notebook in that directory. The method notebooks
 save native outputs before common graph conversion. Conventional
-c-GC/c-GC*, PCMCI+, Bagged PCMCI+, and CUTS+ are loaded from pinned authors'
-checkouts under the ignored `external/` directory; their estimators are not
-copied into this repository.
+c-GC/c-GC*, PCMCI+, and Bagged PCMCI+ are imported from pinned distributions in
+the active environment. CUTS+ is loaded from its pinned authors' checkout under
+the ignored `external/` directory. Their estimators are not copied into this
+repository.
 
 For simulations and DREAM3, run `90-collect-and-score.ipynb` after the method
 notebooks. It validates the
@@ -65,24 +66,31 @@ repository. The data
 preparation notebook therefore validates a user-supplied, licensed copy rather
 than downloading data from an unverified mirror.
 
-The comparison notebooks expect these verified checkouts by default:
+Install the packaged comparison dependencies in the project environment first:
 
-- `external/causalized-GC` at `575ac1dc67a0282a5ca88bc11a2804df052f674d`;
-- `external/tigramite` at `ff3ff13e1481073b8c5833a6fde1c304627a208e`;
+```bash
+uv sync --extra dev --extra comparison --extra conventional-cgc
+```
+
+This installs `tigramite==5.2.10.1`, `causalchamber==0.2.8`, and conventional
+c-GC/c-GC* from the pinned authors' Git commit. The notebooks reject a missing
+or different version or source revision instead of searching another project's
+`site-packages` directory. The conventional c-GC extra is intended for the
+Apple Silicon analysis machine because its Numba dependency provides a CPython
+3.14 arm64 wheel.
+
+The repository-only notebooks expect these verified checkouts by default:
+
 - `external/UNN` at `2212724cce8a7752db564089a7537fecedb0e36d`;
 - `external/debeire24clear_Bagged_TimeSeries_Causality` at
   `8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9` for the autocorrelated-SCM
   generator used by Debeire et al. (2024);
-- `external/causal-chamber-package` at
-  `9fb5d82e391bb91a89a64f2e1c9b6ae8e7aed6d6` for the wind-tunnel reference
-  network;
 - `external/causalrivers` at
   `a30154fbb9a2e03bae133c643d7e978df63b3766` for the authors' connected-subgraph
   sampler.
 
-Override their locations with `CAUSALIZED_GC_ROOT`, `TIGRAMITE_ROOT`, and
-`UNN_ROOT`. Set `BAGGED_PCMCI_DATA_ROOT`,
-`CAUSAL_CHAMBER_PACKAGE_ROOT`, or `CAUSAL_RIVERS_ROOT` for the other checkouts.
+Override the CUTS+ checkout with `UNN_ROOT`. Set `BAGGED_PCMCI_DATA_ROOT` or
+`CAUSAL_RIVERS_ROOT` for the other checkouts.
 The preparation notebooks download the official measurement archives into the
 ignored `external/datasets/` directory and verify their recorded SHA-256
 digests. Existing downloads can be selected with `CAUSAL_CHAMBER_ARCHIVE` and

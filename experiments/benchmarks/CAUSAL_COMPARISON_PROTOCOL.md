@@ -12,8 +12,9 @@ manuscript only after the held-out analysis is complete.
 The local benchmark runner is `benchmark_causal_methods.py`. It writes the
 shared datasets and their truth arrays, then evaluates only fastC-GC and
 fastC-GC*. Every comparison method, including conventional c-GC/c-GC*, is run
-from a pinned checkout of its authors' repository. No comparison estimator is
-reimplemented in this repository.
+from either a pinned official distribution or a pinned checkout of its
+authors' repository. No comparison estimator is reimplemented in this
+repository.
 
 ## Methods
 
@@ -49,14 +50,14 @@ the same graph outside this controlled setting.
 
 | Method | Family | Main role | Benchmark status |
 |---|---|---|---|
-| c-GC | two-test, constraint-based | Conventional reference procedure | Authors' `causalized-GC` checkout at `575ac1dc67a0282a5ca88bc11a2804df052f674d` |
-| c-GC* | two-test, constraint-based | Conventional full-conditioning reference | Same pinned checkout; native `fcgc` mode |
+| c-GC | two-test, constraint-based | Conventional reference procedure | Installed Git distribution from authors' `causalized-GC` commit `575ac1dc67a0282a5ca88bc11a2804df052f674d` |
+| c-GC* | two-test, constraint-based | Conventional full-conditioning reference | Same pinned Git distribution; native `fcgc` mode |
 | fastC-GC | two-test, constraint-based | Vectorized c-GC, correlation profile | Local study-method runner |
 | fastC-GC* | two-test, constraint-based | Vectorized full-conditioning c-GC*, correlation profile | Local study-method runner |
 | Full VAR-GC | regression and coefficient testing | Classical linear predictive baseline | Pinned upstream implementation; no local estimator code |
 | Lasso-VAR | penalized regression | Optional sparse linear control | Pinned upstream implementation; no local estimator code |
-| PCMCI+ with ParCorr | constraint-based | Autocorrelation-aware causal discovery | Pinned Tigramite checkout; positive lags only in the exact-lag track |
-| Bagged PCMCI+ with ParCorr | bootstrap-aggregated constraint-based | Recent lag-resolved comparator | Pinned Tigramite checkout using its native bootstrap routine |
+| PCMCI+ with ParCorr | constraint-based | Autocorrelation-aware causal discovery | Installed `tigramite==5.2.10.1`; positive lags only in the exact-lag track |
+| Bagged PCMCI+ with ParCorr | bootstrap-aggregated constraint-based | Recent lag-resolved comparator | Installed `tigramite==5.2.10.1` using its native bootstrap routine |
 | CUTS+ | neural Granger / graph neural network | Recent high-dimensional neural comparator | Authors' pinned UNN checkout; aggregate variable graph only |
 | Stationarity-Aware Discovery (MSSD) | constraint-based minimal separating sets | Newest same-estimand candidate | Pending; advertised official repository was empty on 20 October 2026 |
 | VAR-LiNGAM | non-Gaussian functional model | Directional non-Gaussian baseline | Pinned authors' checkout; primary interpretation on Laplace-innovation data |
@@ -94,16 +95,18 @@ Primary records:
 - DYNOTEARS, historical only: [Pamfil et al. (2020)](https://proceedings.mlr.press/v108/pamfil20a.html)
 - LPCMCI: [Gerhardus and Runge (2020)](https://proceedings.neurips.cc/paper_files/paper/2020/hash/94e70705efae423efda1088614128d0b-Abstract.html)
 
-## External repository policy
+## Upstream software policy
 
 For every comparison method:
 
-1. clone the repository named in the method table and record its remote URL and
-   exact commit hash;
-2. create an isolated environment from that repository's dependency files, or
-   from a recorded compatibility lock when those files target a different
-   architecture or unsupported Python release; the lock may update
-   dependencies but must not change the estimator source;
+1. install the exact official distribution recorded in the method table when
+   one is available; otherwise clone the named repository and record its remote
+   URL and exact commit hash;
+2. use the project environment for compatible distributions. Create an
+   isolated environment from a repository's dependency files when its pinned
+   requirements target a different architecture or unsupported Python release;
+   a compatibility lock may update dependencies but must not change estimator
+   source;
 3. run the repository's native entry point on the exported `.npz` dataset, or
    on a lossless CSV copy if that is the repository's supported input;
 4. preserve the command, standard output, standard error, software versions,
@@ -113,13 +116,14 @@ For every comparison method:
    when required, but it must not fit a model, apply a new statistical test, or
    infer missing scores.
 
-For conventional c-GC/c-GC*, the notebook imports `GcStar` from the pinned
-`src/d_CSL.py`; it does not import the local `FastGcStar` under another
-name. The upstream connectivity method combines positive lags with a logical
-OR. Its output is therefore an exact-lag result only when the fitted order is
-one. For larger orders it is evaluated in the aggregate any-lag table. The
-lag-specific upstream p-value arrays are retained as native output but are not
-re-thresholded locally to construct a different estimator.
+For conventional c-GC/c-GC*, the notebook imports `GcStar` from the installed
+`d_CSL` module after verifying the distribution's Git URL and commit; it does
+not import the local `FastGcStar` under another name. The upstream connectivity
+method combines positive lags with a logical OR. Its output is therefore an
+exact-lag result only when the fitted order is one. For larger orders it is
+evaluated in the aggregate any-lag table. The lag-specific upstream p-value
+arrays are retained as native output but are not re-thresholded locally to
+construct a different estimator.
 
 If an upstream repository cannot ingest the common dataset without changing its
 estimator, use its native generator with matched dimensions, sample size, lag,
@@ -369,10 +373,13 @@ held-out test seeds.
 ## Software environment
 
 The comparison orchestration and core package target CPython 3.14. The
-conventional c-GC/c-GC* checkout remains at its recorded commit and runs in an
-isolated environment created from the authors' repository. The checkout and
-its environment are local inputs rather than vendored project files. Their
-resolved package versions and platform details are recorded with each run.
+project's `comparison` extra pins Tigramite and Causal Chambers in the active
+virtual environment. Each notebook verifies the installed distribution version
+before importing it. The `conventional-cgc` extra installs the authors' Git
+distribution at its recorded commit and supplies its undeclared runtime
+dependencies. It is intended for the Apple Silicon analysis host, where Numba
+provides a CPython 3.14 wheel. Resolved package versions and platform details
+are recorded with each run.
 
 Other external repositories retain isolated environments. A method that cannot
 run unmodified on Python 3.14 is either reported in a clearly labeled exception

@@ -31,7 +31,7 @@ NOTEBOOK_ROOT = SIMULATION_NOTEBOOK_ROOT / "linear"
 
 def _record(status: str = "ok") -> dict[str, object]:
     return {
-        "method": "published-cgc",
+        "method": "cgc",
         "scenario": "singleLag-Markovian",
         "trial_id": 0,
         "n_past": 1,
@@ -85,7 +85,7 @@ def test_checkpoint_collection_and_native_output_digest(tmp_path) -> None:
     records = read_checkpoints(path.parent)
     rows = metric_rows(
         records,
-        method="published-cgc",
+        method="cgc",
         scenario="singleLag-Markovian",
         config_hash="config-digest",
         upstream_commit=CAUSALIZED_GC_COMMIT,
@@ -120,7 +120,7 @@ def test_conventional_notebooks_use_only_the_pinned_upstream_estimator() -> None
             for cell in notebook["cells"]
         )
         assert "FastGcStar as GcStar" not in source
-        assert "load_published_cgc" in source
+        assert "load_conventional_cgc" in source
         assert "load_or_generate_trial_data" in source
         assert "reusable_success" in source
         assert CAUSALIZED_GC_URL.removesuffix(".git") in source

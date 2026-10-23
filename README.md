@@ -2,7 +2,7 @@
 
 `FastGcStar` implements fastC-GC and fastC-GC*. The `fastC-` prefix identifies
 this vectorized implementation; it does not identify a dependence model or
-change the published c-GC/c-GC* decision rule. The estimator supports linear,
+change the conventional c-GC/c-GC* decision rule. The estimator supports linear,
 kernel, randomized-kernel, and information-theoretic dependence tests while
 keeping the c-GC/c-GC* conditioning rules unchanged.
 The `fastC-` names are reserved for this portable NumPy/SciPy implementation.
@@ -30,20 +30,21 @@ The public `from fastCGC import GcStar, FastGcStar` interface is unchanged.
 The former `fastCGC.fast_causalised_GC` module remains as a compatibility
 forwarder; new code should import estimator internals from `fastCGC.core`.
 
-Interactive experiment notebooks live separately under `notebooks/`:
+Cross-method experiment notebooks use a dataset-first layout under
+`notebooks/`:
 
 ```text
-notebooks/simulations/
-├── linear/
-│   ├── c-GC/
-│   └── c-GC-star/
-└── nonlinear/
-    ├── fastC-GC/
-    └── fastC-GC-star/
+notebooks/
+├── sparseVAR/
+├── lorenz96/
+└── dream3/
 ```
 
-See `notebooks/README.md` for the dataset-sharing, regeneration, and
-pause/resume conventions.
+Each dataset directory contains one shared-data preparation notebook and one
+notebook for each of fastC-GC, fastC-GC*, conventional c-GC/c-GC*, PCMCI+,
+Bagged PCMCI+, and CUTS+. The earlier focused scenario studies remain under
+`notebooks/simulations/`. See `notebooks/README.md` for the full matrix,
+dataset-sharing, regeneration, and pause/resume conventions.
 
 ```python
 from fastCGC import FastGcStar
@@ -139,13 +140,27 @@ git -C external/causalized-GC checkout 575ac1dc67a0282a5ca88bc11a2804df052f674d
 
 The local `external/` directory is ignored by Git. If the checkout lives
 elsewhere, set `CAUSALIZED_GC_ROOT` before starting a notebook. Run the
-published implementation in an isolated environment created from its own
+conventional implementation in an isolated environment created from its own
 repository, and record that environment with the resulting experiment:
 
 ```bash
 export CAUSALIZED_GC_ROOT=/absolute/path/to/causalized-GC
 git -C "$CAUSALIZED_GC_ROOT" rev-parse HEAD
 ```
+
+The PCMCI+ family and CUTS+ notebooks use similarly pinned author checkouts:
+
+```bash
+git clone https://github.com/jakobrunge/tigramite.git external/tigramite
+git -C external/tigramite checkout ff3ff13e1481073b8c5833a6fde1c304627a208e
+
+git clone https://github.com/jarrycyx/UNN.git external/UNN
+git -C external/UNN checkout 2212724cce8a7752db564089a7537fecedb0e36d
+```
+
+Set `TIGRAMITE_ROOT` or `UNN_ROOT` when either checkout is stored elsewhere.
+Each notebook verifies the remote URL and exact commit before importing the
+native entry point.
 
 The notebook loader verifies both the remote URL and the recorded commit before
 importing `GcStar`. The upstream estimator remains unchanged.
@@ -170,6 +185,17 @@ against those bundles and preserve its native outputs before converting graph
 orientation for shared scoring. The study compares graph-recovery efficacy; it
 does not collect elapsed time, memory use, or hardware rankings. The exact
 repository policy is in the comparison protocol.
+
+For the dataset-first notebooks, `00-prepare-data.ipynb` writes the frozen
+bundles under `data/shared/causal-comparison/<dataset>/datasets/`. Each method
+notebook reads those exact files and checkpoints one completed dataset fit at a
+time. Run `90-collect-and-score.ipynb` in the same dataset directory to create
+hash-verified run-level metrics and mean (sample SD) summaries with explicit
+missing/failure counts. Regenerate the notebook matrix with:
+
+```bash
+uv run --extra dev python experiments/benchmarks/sync_comparison_notebooks.py
+```
 
 The eight conventional c-GC/c-GC* simulation notebooks under
 `notebooks/simulations/linear/` follow the same rule on their scenario

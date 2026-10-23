@@ -45,7 +45,7 @@ def _cells(method: str) -> list[dict[str, Any]]:
 # {label}: nonlinear dependence profiles
 
 This notebook evaluates the local `FastGcStar` study method with nonlinear
-dependence profiles. It is not the conventional published c-GC/c-GC*
+dependence profiles. It is not conventional c-GC/c-GC*
 implementation; the conventional linear notebooks load that implementation
 from its pinned authors' repository.
 

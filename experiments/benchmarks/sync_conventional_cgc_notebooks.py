@@ -1,4 +1,4 @@
-"""Synchronize conventional c-GC notebooks with the upstream-run contract."""
+"""Generate conventional c-GC notebooks with the upstream-run contract."""
 
 from __future__ import annotations
 
@@ -42,15 +42,15 @@ def _code(text: str) -> dict[str, Any]:
 def _configuration(method: str, scenario: str) -> dict[str, Any]:
     star = method == "fcgc"
     variable_lags = scenario.startswith("varLags")
-    method_slug = "published-cgc-star" if star else "published-cgc"
+    method_slug = "cgc-star" if star else "cgc"
     return {
         "method": method,
         "method_slug": method_slug,
-        "display_name": "Published c-GC*" if star else "Published c-GC",
+        "display_name": "c-GC*" if star else "c-GC",
         "scenario": scenario,
         "n_lags": 2 if variable_lags else 1,
         "n_pasts": "list(range(2, 8))" if variable_lags else "list(range(1, 8))",
-        "result_stem": "published_cgcstar" if star else "published_cgc",
+        "result_stem": "cgc_star" if star else "cgc",
     }
 
 
@@ -66,8 +66,9 @@ def _cells(configuration: dict[str, Any]) -> list[dict[str, Any]]:
     introduction = f"""
 # {display_name}: {scenario}
 
-This notebook executes the authors' published `GcStar` implementation from
-`https://github.com/adedayoas91/causalized-GC` at the recorded commit. It
+This notebook executes the conventional `GcStar` implementation from the
+authors' `https://github.com/adedayoas91/causalized-GC` repository at the
+recorded commit. It
 does not copy or reimplement the estimator.
 
 Every comparison notebook reads the same hash-verified dataset bundles under
@@ -136,7 +137,7 @@ from fastCGC.experiments.notebook_checkpoint import (
     write_checkpoint,
     write_npz_checkpoint,
 )
-from fastCGC.experiments.upstream import load_published_cgc
+from fastCGC.experiments.upstream import load_conventional_cgc
 
 
 def package_version(distribution: str) -> str:
@@ -175,7 +176,7 @@ UPSTREAM_ROOT = Path(
         PROJECT_ROOT / "external" / "causalized-GC",
     )
 ).expanduser()
-GcStar, UPSTREAM_REVISION = load_published_cgc(UPSTREAM_ROOT)
+GcStar, UPSTREAM_REVISION = load_conventional_cgc(UPSTREAM_ROOT)
 
 print(f"Project root: {PROJECT_ROOT}")
 print(f"Upstream root: {UPSTREAM_REVISION.root}")
@@ -307,7 +308,7 @@ for trial_id in tqdm(range(NUM_TRIALS), desc=f"{{METHOD_SLUG}} trials"):
             break
 
         algorithm_seed = derive_algorithm_seed(
-            "published-cgc",
+            "cgc",
             MASTER_SEED,
             METHOD,
             SCENARIO,

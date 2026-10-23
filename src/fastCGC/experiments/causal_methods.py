@@ -48,8 +48,8 @@ class MethodSpec:
 
 METHOD_SPECS: tuple[MethodSpec, ...] = (
     MethodSpec(
-        "published-cgc",
-        "Published c-GC",
+        "cgc",
+        "c-GC",
         "two-test constraint-based",
         "external-repository-aggregate",
         False,
@@ -57,8 +57,8 @@ METHOD_SPECS: tuple[MethodSpec, ...] = (
         "Run commit 575ac1dc67a0282a5ca88bc11a2804df052f674d; orders above one produce an aggregate graph.",
     ),
     MethodSpec(
-        "published-cgc-star",
-        "Published c-GC*",
+        "cgc-star",
+        "c-GC*",
         "two-test constraint-based",
         "external-repository-aggregate",
         False,

@@ -86,8 +86,8 @@ def test_method_manifest_keeps_comparison_methods_external() -> None:
     assert by_key["fast-cgc-star"].display_name == "fastC-GC*"
 
     for method in (
-        "published-cgc",
-        "published-cgc-star",
+        "cgc",
+        "cgc-star",
         "var-gc",
         "lasso-var",
         "pcmci-plus",

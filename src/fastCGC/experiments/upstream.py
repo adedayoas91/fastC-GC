@@ -64,7 +64,7 @@ def verify_upstream_revision(
     return UpstreamRevision(root, remote_url, commit)
 
 
-def load_published_cgc(
+def load_conventional_cgc(
     root: Path,
 ) -> tuple[type[Any], UpstreamRevision]:
     """Load the authors' GcStar class without copying estimator code."""
@@ -105,6 +105,6 @@ __all__ = [
     "CAUSALIZED_GC_COMMIT",
     "CAUSALIZED_GC_URL",
     "UpstreamRevision",
-    "load_published_cgc",
+    "load_conventional_cgc",
     "verify_upstream_revision",
 ]

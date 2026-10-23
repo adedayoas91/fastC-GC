@@ -48,6 +48,46 @@ def test_benchmark_metadata_converts_numpy_values_to_json_types() -> None:
     json.dumps(converted)
 
 
+def test_datasets_only_mode_is_available_for_shared_data_notebooks() -> None:
+    parser = _load_cli_module()._parser()
+
+    args = parser.parse_args(["--datasets-only", "--replicates", "1"])
+
+    assert args.datasets_only is True
+
+
+def test_datasets_only_mode_exports_without_method_results(tmp_path) -> None:
+    module = _load_cli_module()
+    args = module._parser().parse_args(
+        [
+            "--datasets-only",
+            "--variables",
+            "2",
+            "--samples",
+            "12",
+            "--orders",
+            "1",
+            "--noises",
+            "gaussian",
+            "--replicates",
+            "1",
+            "--seed-start",
+            "31",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert module._run(args) == 0
+
+    assert (tmp_path / "datasets" / "var2-t12-p1-gaussian-seed31.npz").is_file()
+    assert not (tmp_path / "method_metrics.csv").exists()
+    assert not (tmp_path / "edge_predictions.csv").exists()
+    manifest = json.loads((tmp_path / "protocol.json").read_text(encoding="utf-8"))
+    assert manifest["datasets_only"] is True
+    assert manifest["methods"] == []
+
+
 def test_comparison_runner_records_software_without_hardware_ranking() -> None:
     module = _load_cli_module()
 

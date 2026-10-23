@@ -320,7 +320,8 @@ def _dataset_cells(args: argparse.Namespace) -> Iterable[tuple[int, int, int, in
 
 def _run(args: argparse.Namespace) -> int:
     _require_python_314()
-    unknown = [method for method in args.methods if method not in DEFAULT_METHODS]
+    methods = () if args.datasets_only else args.methods
+    unknown = [method for method in methods if method not in DEFAULT_METHODS]
     if unknown:
         raise ValueError(
             f"Methods without a local runner: {', '.join(sorted(unknown))}. "
@@ -350,7 +351,7 @@ def _run(args: argparse.Namespace) -> int:
                 f"var{n_variables}-t{n_samples}-p{order}-{noise}-seed{seed}"
             )
             _save_dataset_bundle(output_dir, dataset_id, dataset)
-            for method_index, method in enumerate(args.methods):
+            for method_index, method in enumerate(methods):
                 worker_output = temporary_dir / f"{cell_index}-{method_index}.npz"
                 command = _worker_command(
                     args,
@@ -423,12 +424,14 @@ def _run(args: argparse.Namespace) -> int:
                     )
                 )
 
-    _write_csv(output_dir / "method_metrics.csv", metric_rows)
-    _write_csv(output_dir / "edge_predictions.csv", edge_rows)
+    if not args.datasets_only:
+        _write_csv(output_dir / "method_metrics.csv", metric_rows)
+        _write_csv(output_dir / "edge_predictions.csv", edge_rows)
     manifest = {
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "software_provenance": _software_provenance(),
-        "methods": list(args.methods),
+        "methods": list(methods),
+        "datasets_only": args.datasets_only,
         "variables": list(args.variables),
         "samples": list(args.samples),
         "orders": list(args.orders),
@@ -455,7 +458,10 @@ def _run(args: argparse.Namespace) -> int:
     (output_dir / "protocol.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
     )
-    print(f"Wrote {len(metric_rows)} method rows to {output_dir}")
+    if args.datasets_only:
+        print(f"Wrote shared datasets to {output_dir / 'datasets'}")
+    else:
+        print(f"Wrote {len(metric_rows)} method rows to {output_dir}")
     return 0
 
 
@@ -478,6 +484,11 @@ def _list_methods() -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-methods", action="store_true")
+    parser.add_argument(
+        "--datasets-only",
+        action="store_true",
+        help="Export the paired dataset grid without fitting a method.",
+    )
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--method", default="fast-cgc")
     parser.add_argument("--methods", type=_parse_strings, default=DEFAULT_METHODS)

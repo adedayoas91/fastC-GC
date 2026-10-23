@@ -55,7 +55,7 @@ made in the manuscript, and limitations are stated where the evidence stops.
 
 The paper can move to final empirical validation. The proofs and implementation
 claims have no remaining correctness blocker. The paper is framed as a
-vectorized reimplementation of published c-GC/c-GC*, without a runtime or
+vectorized reimplementation of conventional c-GC/c-GC*, without a runtime or
 memory claim. The open comparison concerns graph-recovery efficacy and paired
 output agreement, not computing speed.
 
@@ -400,7 +400,7 @@ Final writing observations:
   the top-level `notebooks/` directory and include Python and package versions
   in a software fingerprint while leaving hardware out of the comparison
   contract. Existing Intel/Python 3.13 results remain historical artifacts.
-- The published c-GC checkout and its environment are deliberately excluded
+- The conventional c-GC checkout and its environment are deliberately excluded
   from this repository. The notebook loader pins and verifies the upstream URL
   and commit, while each run records the external environment and platform.
   Native import and fit smoke tests must still be run on the M5 machine before
@@ -409,7 +409,7 @@ Final writing observations:
   repository at commit
   `575ac1dc67a0282a5ca88bc11a2804df052f674d`. Their shared datasets are
   hash-verified, their native arrays are preserved, and completed fits resume
-  from provenance-checked checkpoints. No published estimator code is copied
+  from provenance-checked checkpoints. No conventional estimator code is copied
   into this repository.
 - `uv build`: produced both `fastcgc-0.1.0.tar.gz` and
   `fastcgc-0.1.0-py3-none-any.whl`.
@@ -424,18 +424,18 @@ Final writing observations:
 
 ## Remaining empirical work and extensions
 
-1. **Run the definitive published-versus-vectorized paired comparison.**
+1. **Run the definitive conventional-versus-vectorized paired comparison.**
    Pair the pinned authors' c-GC code with fastC-GC and the pinned c-GC* mode
    with fastC-GC* on identical hash-verified datasets. Report the prespecified
    graph-recovery metrics, exact-lag agreement at order one, aggregate graph
    agreement at every order, and traceable score or decision-value
-   disagreements. Because the published and vectorized implementations differ
+   disagreements. Because the conventional and vectorized implementations differ
    in standardization, ridge regularization, and shift enumeration, exact
    numerical equality is not assumed. Runtime, memory, hardware, and
    accelerator rankings are outside this comparison.
 2. **Comparison study now specified and updated from recent literature (20
    October 2026).** The headline external CSL methods are PCMCI+, Bagged PCMCI+,
-   and CUTS+. None is implemented in this repository. Published c-GC/c-GC* and
+   and CUTS+. None is implemented in this repository. Conventional c-GC/c-GC* and
    every external CSL or classical control are run from pinned author or
    upstream repositories in separate environments. The local runner evaluates
    only fastC-GC/fastC-GC* and exports method-neutral datasets with hashes

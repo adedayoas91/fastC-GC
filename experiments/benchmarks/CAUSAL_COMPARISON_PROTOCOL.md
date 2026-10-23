@@ -3,7 +3,7 @@
 ## Purpose and current status
 
 This protocol governs the comparison of fastC-GC and fastC-GC* with the
-published c-GC/c-GC* procedures and established time-series causal-structure
+conventional c-GC/c-GC* procedures and established time-series causal-structure
 methods. It is a prospective protocol, not a results section. Pilot runs may be
 used to find software or data-generation errors, but confirmatory settings must
 be frozen before held-out seeds are run. Comparative claims should enter the
@@ -11,7 +11,7 @@ manuscript only after the held-out analysis is complete.
 
 The local benchmark runner is `benchmark_causal_methods.py`. It writes the
 shared datasets and their truth arrays, then evaluates only fastC-GC and
-fastC-GC*. Every comparison method, including published c-GC/c-GC*, is run
+fastC-GC*. Every comparison method, including conventional c-GC/c-GC*, is run
 from a pinned checkout of its authors' repository. No comparison estimator is
 reimplemented in this repository.
 
@@ -49,8 +49,8 @@ the same graph outside this controlled setting.
 
 | Method | Family | Main role | Benchmark status |
 |---|---|---|---|
-| Published c-GC | two-test, constraint-based | Conventional reference procedure | Authors' `causalized-GC` checkout at `575ac1dc67a0282a5ca88bc11a2804df052f674d` |
-| Published c-GC* | two-test, constraint-based | Conventional full-conditioning reference | Same pinned checkout; native `fcgc` mode |
+| c-GC | two-test, constraint-based | Conventional reference procedure | Authors' `causalized-GC` checkout at `575ac1dc67a0282a5ca88bc11a2804df052f674d` |
+| c-GC* | two-test, constraint-based | Conventional full-conditioning reference | Same pinned checkout; native `fcgc` mode |
 | fastC-GC | two-test, constraint-based | Vectorized c-GC, correlation profile | Local study-method runner |
 | fastC-GC* | two-test, constraint-based | Vectorized full-conditioning c-GC*, correlation profile | Local study-method runner |
 | Full VAR-GC | regression and coefficient testing | Classical linear predictive baseline | Pinned upstream implementation; no local estimator code |
@@ -111,7 +111,7 @@ For every comparison method:
    when required, but it must not fit a model, apply a new statistical test, or
    infer missing scores.
 
-For published c-GC/c-GC*, the notebook imports `GcStar` from the pinned
+For conventional c-GC/c-GC*, the notebook imports `GcStar` from the pinned
 `src/d_CSL.py`; it does not import the local `FastGcStar` under another
 name. The upstream connectivity method combines positive lags with a logical
 OR. Its output is therefore an exact-lag result only when the fitted order is
@@ -125,6 +125,13 @@ noise family, and graph density. Such results are an unpaired sensitivity
 analysis and are not mixed with the paired common-dataset table.
 
 ## Shared notebook datasets
+
+The cross-method notebooks are organized first by dataset:
+`notebooks/sparseVAR/`, `notebooks/lorenz96/`, and `notebooks/dream3/`. Each
+directory contains one preparation notebook and one notebook per runnable
+study or comparison method. This makes the shared-data boundary explicit: all
+method notebooks in a directory consume the same saved bundles and never
+generate method-specific observations.
 
 The scenario notebooks use one saved bundle per `(scenario, trial_id)`.
 Generation uses the declared master seed plus the trial identifier. The bundle
@@ -232,6 +239,15 @@ replicates.
 AUPRC, AUROC, F1, MCC, and normalized SHD should be compared on the same paired
 datasets.
 
+Each dataset directory ends with `90-collect-and-score.ipynb`. The notebook
+uses the shared tested scoring module to validate input and output hashes,
+retain explicit missing/failed rows, and write both run-level measurements and
+cell-level mean (sample SD) summaries. The summaries include attempted,
+completed, and failed counts. Exact-lag and aggregate-any-lag estimates remain
+in distinct rows, and failure-aware F1 assigns zero to every attempted fit that
+fails. Fits that have not yet been attempted are counted as missing rather than
+as failures.
+
 ## Execution and failure protocol
 
 - one fresh subprocess per method/dataset pair;
@@ -252,16 +268,16 @@ the current run.
 Failures remain explicit records and are retried on the next run. Native arrays
 are saved separately with their own SHA-256 digest. A user can cap the number
 of new fits in one session or interrupt a fit and rerun the cell. Because the
-published c-GC code has no internal checkpoint API, resumption occurs between
+conventional c-GC code has no internal checkpoint API, resumption occurs between
 fits, not inside a permutation calculation.
 
 Data-generation seeds and estimator seeds are recorded separately. The
-published implementation uses NumPy randomness within concurrent Numba code
+conventional implementation uses NumPy randomness within concurrent Numba code
 and does not accept a random-state object. Setting the recorded wrapper seed is
 best-effort control; deterministic estimator output is not assumed until a
 repeatability check establishes it.
 
-The published c-GC/c-GC* thresholds (`alpha=0.01`, `beta=0.001`) and permutation
+The conventional c-GC/c-GC* thresholds (`alpha=0.01`, `beta=0.001`) and permutation
 count (`N=1000`) are retained as a source-faithful arm. The finite resolution of
 permutation p-values is reported explicitly. A separately labeled validation-
 tuned arm may use a common threshold grid, but no setting may be chosen using
@@ -270,7 +286,7 @@ held-out test seeds.
 ## Software environment
 
 The comparison orchestration and core package target CPython 3.14. The
-published c-GC/c-GC* checkout remains at its recorded commit and runs in an
+conventional c-GC/c-GC* checkout remains at its recorded commit and runs in an
 isolated environment created from the authors' repository. The checkout and
 its environment are local inputs rather than vendored project files. Their
 resolved package versions and platform details are recorded with each run.

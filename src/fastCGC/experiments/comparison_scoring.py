@@ -74,6 +74,7 @@ GROUP_COLUMNS = (
     "n_samples",
     "fit_order",
     "noise",
+    "regime",
 )
 
 
@@ -94,6 +95,52 @@ class ScoreArtifacts:
     summary: pd.DataFrame
     run_metrics_path: Path
     summary_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class GraphArtifacts:
+    """Empirical inferred-edge tables and their persisted CSV paths."""
+
+    edge_table: pd.DataFrame
+    status_table: pd.DataFrame
+    reference_edges: pd.DataFrame
+    edge_table_path: Path
+    status_table_path: Path
+    reference_edges_path: Path
+
+
+EDGE_COLUMNS = (
+    "dataset",
+    "dataset_id",
+    "method",
+    "source_index",
+    "target_index",
+    "source",
+    "target",
+    "score",
+)
+
+STATUS_COLUMNS = (
+    "dataset",
+    "dataset_id",
+    "method",
+    "status",
+    "n_variables",
+    "n_samples",
+    "fit_order",
+    "regime",
+    "edge_count",
+    "error",
+)
+
+REFERENCE_EDGE_COLUMNS = (
+    "dataset",
+    "dataset_id",
+    "source_index",
+    "target_index",
+    "source",
+    "target",
+)
 
 
 def _require_shape(
@@ -276,6 +323,7 @@ def _base_row(
     n_samples: int,
     fit_order: int,
     noise: str,
+    regime: str,
     seed: int | str,
     error: str,
 ) -> dict[str, Any]:
@@ -289,6 +337,7 @@ def _base_row(
         "n_samples": n_samples,
         "fit_order": fit_order,
         "noise": noise,
+        "regime": regime,
         "seed": seed,
         "error": error,
     }
@@ -400,6 +449,270 @@ def _atomic_write_csv(frame: pd.DataFrame, path: Path) -> None:
     os.replace(temporary, path)
 
 
+def _named_edges(
+    selected: np.ndarray,
+    *,
+    variable_names: Sequence[str],
+    scores: np.ndarray | None = None,
+) -> list[dict[str, Any]]:
+    """Return cross-variable directed edges in source-target orientation."""
+
+    n_variables = len(variable_names)
+    adjacency = _require_shape(
+        selected,
+        (n_variables, n_variables),
+        name="selected graph",
+    ).astype(bool, copy=False)
+    score_array = None
+    if scores is not None:
+        score_array = _require_shape(
+            scores,
+            adjacency.shape,
+            name="edge scores",
+        ).astype(float, copy=False)
+
+    rows: list[dict[str, Any]] = []
+    for source_index, target_index in np.argwhere(adjacency):
+        source = int(source_index)
+        target = int(target_index)
+        if source == target:
+            continue
+        rows.append(
+            {
+                "source_index": source,
+                "target_index": target,
+                "source": str(variable_names[source]),
+                "target": str(variable_names[target]),
+                "score": (
+                    float(score_array[source, target])
+                    if score_array is not None
+                    else np.nan
+                ),
+            }
+        )
+    return rows
+
+
+def collect_dataset_graphs(
+    project_root: Path,
+    dataset_key: str,
+    *,
+    methods: Sequence[str] = METHODS,
+) -> GraphArtifacts:
+    """Collect empirical inferred graphs without requiring a truth matrix.
+
+    The collector validates the same dataset and native-output provenance used
+    by the simulation scorer. It exports aggregate cross-variable edges for
+    visualization and keeps missing or failed fits in a separate status table.
+    A bundle may include a ``reference_graph`` for a contextual panel, but that
+    graph is never scored by this function.
+    """
+
+    project_root = Path(project_root).resolve()
+    requested_methods = tuple(methods)
+    unknown = sorted(set(requested_methods) - set(METHODS))
+    if unknown:
+        raise ValueError(f"Unknown comparison methods: {unknown}.")
+    if len(requested_methods) != len(set(requested_methods)):
+        raise ValueError("methods must not contain duplicates.")
+
+    dataset_dir = (
+        project_root
+        / "data"
+        / "shared"
+        / "causal-comparison"
+        / dataset_key
+        / "datasets"
+    )
+    bundle_paths = sorted(dataset_dir.glob("*.npz"))
+    if not bundle_paths:
+        raise FileNotFoundError(
+            f"No frozen {dataset_key} bundles found in {dataset_dir}."
+        )
+
+    edge_rows: list[dict[str, Any]] = []
+    status_rows: list[dict[str, Any]] = []
+    reference_rows: list[dict[str, Any]] = []
+    for bundle_path in bundle_paths:
+        metadata_path = bundle_path.with_suffix(".json")
+        if not metadata_path.is_file():
+            raise FileNotFoundError(f"Missing metadata for {bundle_path}.")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        with np.load(bundle_path, allow_pickle=False) as stored:
+            series = np.asarray(stored["series"], dtype=float)
+            if series.ndim != 2:
+                raise ValueError(f"series must be two-dimensional in {bundle_path}.")
+            reference_graph = (
+                np.asarray(stored["reference_graph"], dtype=bool)
+                if "reference_graph" in stored.files
+                else None
+            )
+
+        dataset_id = bundle_path.stem
+        if metadata.get("dataset_id") != dataset_id:
+            raise ValueError(f"Dataset identifier mismatch for {bundle_path}.")
+        observed_digest = _series_digest(series)
+        recorded_digest = metadata.get("data_digest", metadata.get("digest"))
+        if observed_digest != recorded_digest:
+            raise ValueError(f"Dataset digest mismatch for {bundle_path}.")
+
+        n_variables, n_samples = map(int, series.shape)
+        names_value = metadata.get("variable_names")
+        if names_value is None:
+            variable_names = tuple(f"X{index}" for index in range(n_variables))
+        elif (
+            isinstance(names_value, list)
+            and len(names_value) == n_variables
+            and all(isinstance(name, (str, int)) for name in names_value)
+        ):
+            variable_names = tuple(str(name) for name in names_value)
+        else:
+            raise ValueError(
+                f"variable_names must contain {n_variables} strings in {metadata_path}."
+            )
+        fit_order = int(metadata.get("fit_order", 1))
+        regime = str(metadata.get("regime", ""))
+
+        if reference_graph is not None:
+            for row in _named_edges(
+                reference_graph,
+                variable_names=variable_names,
+            ):
+                reference_rows.append(
+                    {
+                        "dataset": dataset_key,
+                        "dataset_id": dataset_id,
+                        **{key: row[key] for key in REFERENCE_EDGE_COLUMNS[2:]},
+                    }
+                )
+
+        for method in requested_methods:
+            checkpoint_path = (
+                project_root
+                / "data"
+                / "outputs"
+                / "causal-comparison"
+                / dataset_key
+                / method
+                / "checkpoints"
+                / f"{dataset_id}.json"
+            )
+            status = "missing"
+            error = "checkpoint not found"
+            edge_count = 0
+            if checkpoint_path.is_file():
+                checkpoint = read_checkpoint(checkpoint_path)
+                _validate_checkpoint(
+                    checkpoint,
+                    dataset_key=dataset_key,
+                    dataset_id=dataset_id,
+                    method=method,
+                    dataset_digest=observed_digest,
+                    fit_order=fit_order,
+                )
+                if checkpoint.get("status") == "ok":
+                    native = _load_native_output(project_root, checkpoint)
+                    normalized = normalize_native_output(
+                        method,
+                        native,
+                        fit_order=fit_order,
+                        n_variables=n_variables,
+                    )
+                    aggregate = next(
+                        (
+                            output
+                            for output in normalized
+                            if output.estimand == "aggregate-any-lag"
+                        ),
+                        None,
+                    )
+                    if aggregate is None:
+                        raise ValueError(
+                            f"{method} did not return an aggregate graph for {dataset_id}."
+                        )
+                    named_edges = _named_edges(
+                        aggregate.selected,
+                        variable_names=variable_names,
+                        scores=aggregate.scores,
+                    )
+                    edge_count = len(named_edges)
+                    for row in named_edges:
+                        edge_rows.append(
+                            {
+                                "dataset": dataset_key,
+                                "dataset_id": dataset_id,
+                                "method": method,
+                                **row,
+                            }
+                        )
+                    status = "ok"
+                    error = ""
+                else:
+                    status = str(checkpoint.get("status", "failed"))
+                    error = str(checkpoint.get("error", "fit did not complete"))
+
+            status_rows.append(
+                {
+                    "dataset": dataset_key,
+                    "dataset_id": dataset_id,
+                    "method": method,
+                    "status": status,
+                    "n_variables": n_variables,
+                    "n_samples": n_samples,
+                    "fit_order": fit_order,
+                    "regime": regime,
+                    "edge_count": edge_count,
+                    "error": error,
+                }
+            )
+
+    edge_table = pd.DataFrame(edge_rows, columns=EDGE_COLUMNS)
+    status_table = pd.DataFrame(status_rows, columns=STATUS_COLUMNS).sort_values(
+        ["dataset_id", "method"],
+        kind="stable",
+        ignore_index=True,
+    )
+    reference_edges = pd.DataFrame(
+        reference_rows,
+        columns=REFERENCE_EDGE_COLUMNS,
+    )
+    if not edge_table.empty:
+        edge_table = edge_table.sort_values(
+            ["dataset_id", "method", "source_index", "target_index"],
+            kind="stable",
+            ignore_index=True,
+        )
+    if not reference_edges.empty:
+        reference_edges = reference_edges.sort_values(
+            ["dataset_id", "source_index", "target_index"],
+            kind="stable",
+            ignore_index=True,
+        )
+
+    graph_dir = (
+        project_root
+        / "data"
+        / "outputs"
+        / "causal-comparison"
+        / dataset_key
+        / "graphs"
+    )
+    edge_table_path = graph_dir / "inferred_edges.csv"
+    status_table_path = graph_dir / "run_status.csv"
+    reference_edges_path = graph_dir / "reference_edges.csv"
+    _atomic_write_csv(edge_table, edge_table_path)
+    _atomic_write_csv(status_table, status_table_path)
+    _atomic_write_csv(reference_edges, reference_edges_path)
+    return GraphArtifacts(
+        edge_table=edge_table,
+        status_table=status_table,
+        reference_edges=reference_edges,
+        edge_table_path=edge_table_path,
+        status_table_path=status_table_path,
+        reference_edges_path=reference_edges_path,
+    )
+
+
 def score_dataset_outputs(
     project_root: Path,
     dataset_key: str,
@@ -475,6 +788,7 @@ def score_dataset_outputs(
         ):
             raise ValueError(f"Lag truth has the wrong shape in {bundle_path}.")
         noise = str(metadata.get("noise", ""))
+        regime = str(metadata.get("regime", ""))
         seed: int | str = metadata.get("seed", metadata.get("dataset_index", ""))
 
         for method in requested_methods:
@@ -506,6 +820,7 @@ def score_dataset_outputs(
                                 n_samples=n_samples,
                                 fit_order=fit_order,
                                 noise=noise,
+                                regime=regime,
                                 seed=seed,
                                 error="checkpoint not found",
                             ),
@@ -540,6 +855,7 @@ def score_dataset_outputs(
                                 n_samples=n_samples,
                                 fit_order=fit_order,
                                 noise=noise,
+                                regime=regime,
                                 seed=seed,
                                 error=error,
                             ),
@@ -584,6 +900,7 @@ def score_dataset_outputs(
                             n_samples=n_samples,
                             fit_order=fit_order,
                             noise=noise,
+                            regime=regime,
                             seed=seed,
                             error="",
                         ),
@@ -618,9 +935,11 @@ def score_dataset_outputs(
 
 
 __all__ = [
+    "GraphArtifacts",
     "METHODS",
     "NormalizedOutput",
     "ScoreArtifacts",
+    "collect_dataset_graphs",
     "normalize_native_output",
     "score_dataset_outputs",
 ]

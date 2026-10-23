@@ -19,9 +19,9 @@ reimplemented in this repository.
 
 There is no defensible single state-of-the-art method across all time-series
 causal-discovery regimes. The 2025 CausalDynamics benchmark reports substantial
-changes in method ranking across linear, nonlinear, noisy, confounded, and
-lagged systems. The shortlist therefore uses recent evidence and complementary
-assumptions rather than venue date alone.
+changes in method ranking across its data-generating regimes. The shortlist
+therefore uses recent evidence and complementary assumptions rather than venue
+date alone.
 
 The three headline external comparators are PCMCI+, Bagged PCMCI+, and CUTS+.
 PCMCI+ provides a maintained, lag-resolved constraint-based reference. Bagged
@@ -63,9 +63,9 @@ the same graph outside this controlled setting.
 | DYNOTEARS | continuous score-based | Historical sensitivity analysis | Not a headline comparator; discontinued canonical CausalNex implementation requires a frozen legacy environment |
 | LPCMCI with ParCorr | latent-variable constraint-based | Hidden-common-cause stress test | Separate PAG track; not ranked as a fully directed DAG |
 
-PCMCI may be included as a historical secondary baseline. Nonlinear PCMCI+
-variants, such as GPDC or CMIknn, belong in a nonlinear extension rather than
-the main linear comparison. Static PC or GES on raw observations are excluded:
+PCMCI may be included as a historical secondary baseline. Alternative PCMCI+
+conditional-independence tests, such as GPDC or CMIknn, may be added in a
+separately labelled sensitivity analysis. Static PC or GES on raw observations are excluded:
 without an explicit lag expansion they solve an IID graph problem, not the
 positive-lag time-series problem. Lag-expanded PC/GES may be reported as a
 sensitivity analysis if time order is enforced and overlapping-window
@@ -88,6 +88,8 @@ Primary records:
 - CUTS+: [Cheng et al. (2024)](https://ojs.aaai.org/index.php/AAAI/article/view/29034) and [authors' source](https://github.com/jarrycyx/UNN)
 - Stationarity-Aware Discovery: [Gao et al. (2026)](https://proceedings.mlr.press/v300/gao26a.html) and [advertised source repository](https://github.com/CausalML-Lab/StationarityAwareDiscovery)
 - recent cross-method evidence: [CausalTime (ICLR 2024)](https://proceedings.iclr.cc/paper_files/paper/2024/hash/0c79d6ed1788653643a1ac67b6ea32a7-Abstract-Conference.html) and [CausalDynamics (NeurIPS 2025)](https://proceedings.neurips.cc/paper_files/paper/2025/hash/39a3f7dc00e4723a5ca7808b04fc4d4f-Abstract-Datasets_and_Benchmarks_Track.html)
+- empirical time-series data: [Causal Chambers (Nature Machine Intelligence, 2025)](https://doi.org/10.1038/s42256-024-00964-x) and [CausalRivers (ICLR 2025)](https://proceedings.iclr.cc/paper_files/paper/2025/hash/a205fda871b0f6c1e18a7ad7325eb6cf-Abstract-Conference.html)
+- DREAM3 in-silico challenge: [Prill et al. (2010)](https://doi.org/10.1371/journal.pone.0009202)
 - VAR-LiNGAM: [Hyvärinen et al. (2010)](https://www.jmlr.org/papers/v11/hyvarinen10a.html) and [official API](https://lingam.readthedocs.io/en/stable/reference/var_lingam.html)
 - DYNOTEARS, historical only: [Pamfil et al. (2020)](https://proceedings.mlr.press/v108/pamfil20a.html)
 - LPCMCI: [Gerhardus and Runge (2020)](https://proceedings.neurips.cc/paper_files/paper/2020/hash/94e70705efae423efda1088614128d0b-Abstract.html)
@@ -126,21 +128,28 @@ analysis and are not mixed with the paired common-dataset table.
 
 ## Shared notebook datasets
 
-The cross-method notebooks are organized first by dataset:
-`notebooks/sparseVAR/`, `notebooks/lorenz96/`, and `notebooks/dream3/`. Each
-directory contains one preparation notebook and one notebook per runnable
-study or comparison method. This makes the shared-data boundary explicit: all
-method notebooks in a directory consume the same saved bundles and never
-generate method-specific observations.
+The cross-method notebooks are organized first by data source. Controlled and
+in-silico data are under `notebooks/simulations/`: sparse VAR, Lorenz--96, the
+autocorrelated structural causal process, and DREAM3. DREAM3 is generated in
+silico with GeneNetWeaver and is not classified as a real-world dataset.
+Measured data are under `notebooks/empirical/causalChamber/` and
+`notebooks/empirical/causalRivers/`. Every directory contains one preparation
+notebook and one notebook for each of the seven runnable methods. Simulation
+directories end with a scoring notebook; empirical directories end with an
+edge-collection and graph-visualization notebook. All method notebooks in a
+directory consume the same saved bundles and never generate method-specific
+observations.
 
-The scenario notebooks use one saved bundle per `(scenario, trial_id)`.
-Generation uses the declared master seed plus the trial identifier. The bundle
-contains the series, aggregate coefficient matrix, lag-resolved coefficients,
-and canonical `lag, source, target` truth. Its adjacent JSON file records the
-generator, full generation settings, array layouts, effective seed, and SHA-256
-digest.
+Each preparation notebook uses one saved bundle per data-generating setting,
+seed, measured run, or measured subgraph. A controlled or in-silico bundle
+contains the series and either exact lag-resolved truth or the declared
+aggregate graph. An empirical bundle contains the series and may include a
+separately labelled physical or constructed reference network. Its adjacent
+JSON file records the source, preparation settings, array layouts, identifiers,
+and SHA-256 digest.
 
-The first notebook that requests an absent bundle creates it atomically.
+The first notebook that requests an absent bundle writes its data and metadata
+through atomic file replacement.
 Subsequent notebooks load it and verify its digest and generation settings.
 They fail on a missing metadata file, corruption, or a conflicting seed/range
 request instead of overwriting the dataset. Thus every CSL method sees the same
@@ -178,16 +187,80 @@ spectral radius no larger than 0.8. The initial confirmatory grid is:
 - innovations: Gaussian and variance-matched Laplace;
 - at least 50 paired seeds per cell.
 
-The Gaussian track is the main linear comparison. The Laplace track is also the
-primary assumption-matched track for VAR-LiNGAM. Later extensions should add
-nonlinear links, contemporaneous effects, shared latent causes, heavy tails,
-structural breaks, and missing observations one factor at a time. Known lag
-order and lag-order selection must be reported separately.
+The Gaussian-innovation, identity-link cells are the sparse-VAR reference.
+Laplace innovations test sensitivity to the innovation distribution and are
+also the assumption-matched cells for VAR-LiNGAM. Known lag order and lag-order
+selection must be reported separately.
 
-## Metrics
+The second controlled family adopts the additive autocorrelated structural
+causal process from Debeire et al. (2024):
+
+```text
+X_t^j = a_j X_{t-1}^j + sum_i c_i f_i(X_{t-tau_i}^i) + eta_t^j.
+```
+
+The implementation calls `generate_random_contemp_model` and
+`generate_nonlinear_contemp_timeseries` from the pinned authors' repository at
+`8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9`; the generator is not copied into
+this repository. The reference cell uses 10 variables, 500 observations,
+maximum lag 5, maximum autoregressive coefficient 0.6, identity link functions,
+Gaussian innovations, and `floor(1.5 N)` cross-links. One-factor cells vary the
+variable count (5 or 20), observation count (250 or 1,000), maximum
+autoregressive coefficient (0.2 or 0.95), link-function set, or innovation
+family. A cross-link-free cell estimates false-positive behavior when the
+cross-variable graph is empty. Each cell has 50 requested seeds. Coefficients,
+innovation scales, accepted model seeds, and stationarity rejections are
+retained with the data.
+
+The source study includes a 30% contemporaneous-link setting. The matched
+seven-method comparison uses `contemp_fraction=0.0`, because the methods do not
+all return a compatible contemporaneous graph. This deviation is recorded in
+every bundle. A source-faithful contemporaneous experiment, if run, belongs in
+a separate table with method-specific estimands and must not be pooled with the
+positive-lag comparison.
+
+Lorenz-96 supplies a further dynamical-system stress test. The preparation
+notebook records the forcing, integration step, noise scale, burn-in, seed, and
+aggregate structural graph rather than classifying the process by a broad
+linear/nonlinear label.
+
+DREAM3 Size 100 supplies five in-silico gene-regulatory systems generated with
+GeneNetWeaver. The aggregate regulatory network is the recovery target. The
+data are grouped with the other generated processes, not with the measured-data
+case studies.
+
+## Empirical case studies
+
+The first measured-data study uses the `wt_walks_v1` wind-tunnel recordings
+from Causal Chambers. The source-faithful primary bundle uses the
+`actuators_random_walk_1` experiment, the 16 variables selected in the authors'
+time-series causal-discovery case study, per-variable min--max normalization,
+and maximum fitted lag 10. The physical causal model distributed by the
+project is stored as a reference network. It is displayed separately from the
+seven inferred graphs and is not required for running the collector.
+
+The second study uses CausalRivers discharge measurements from eastern Germany
+and Bavaria. It applies the authors' connected-subgraph routine to five-station
+graphs and selects five subgraphs per region deterministically from the sorted
+candidate list. The time series follow the repository's default preparation:
+6-hour rounded means, per-station min--max normalization, linear interpolation,
+and removal of incomplete end rows. The supplied river-connectivity subgraph is
+stored as a contextual reference. It is not treated as an exhaustive
+lag-resolved statistical causal graph.
+
+Both empirical collectors write a method-by-method edge table, a run-status
+table, an optional reference-edge table, and directed graph panels with common
+node positions. They do not compute graph-recovery metrics. This rule also
+applies to a future measured dataset with no defensible reference graph: the
+reported result is the inferred network, together with method settings and
+provenance.
+
+## Metrics for controlled and in-silico recovery
 
 No single metric is sufficient for sparse directed graphs. The following set is
-recorded for both exact-lag and any-lag recovery unless stated otherwise.
+recorded for exact-lag and any-lag recovery on simulated and in-silico datasets
+unless stated otherwise. These metrics are not mandatory outcomes for the two
+empirical case studies.
 
 ### Ranking metrics
 
@@ -229,17 +302,21 @@ regularization grids are selected on development/validation seeds only.
 
 ## Statistical comparison
 
-The dataset/seed is the paired experimental unit. Report the median and a 95%
-cluster-bootstrap interval across seeds for each method and cell. Pairwise
-method contrasts use a paired permutation or randomization test on the
-seed-level metric differences, with effect sizes and Holm correction across the
-declared family of comparisons. Do not treat individual edges as independent
-replicates.
+For controlled and in-silico recovery, the dataset/seed is the paired
+experimental unit. The notebook tables report
+the mean and sample standard deviation across seeds for each method and cell.
+The confirmatory analysis may also report the median and a 95% cluster-bootstrap
+interval. Planned pairwise method contrasts use a paired permutation or
+randomization test on the seed-level metric differences, with effect sizes and
+Holm correction across the declared family of comparisons. Do not treat
+individual edges as independent replicates.
 
 AUPRC, AUROC, F1, MCC, and normalized SHD should be compared on the same paired
-datasets.
+controlled or in-silico datasets. The empirical graph panels are descriptive
+case studies and do not enter these paired tests.
 
-Each dataset directory ends with `90-collect-and-score.ipynb`. The notebook
+Each simulation or in-silico directory ends with
+`90-collect-and-score.ipynb`. The notebook
 uses the shared tested scoring module to validate input and output hashes,
 retain explicit missing/failed rows, and write both run-level measurements and
 cell-level mean (sample SD) summaries. The summaries include attempted,
@@ -247,6 +324,12 @@ completed, and failed counts. Exact-lag and aggregate-any-lag estimates remain
 in distinct rows, and failure-aware F1 assigns zero to every attempted fit that
 fails. Fits that have not yet been attempted are counted as missing rather than
 as failures.
+
+Each empirical directory instead ends with
+`90-collect-and-visualize.ipynb`. It uses the shared tested collector to
+validate hashes, preserve missing and failed fits, export inferred edges, and
+draw one directed graph per method. An available reference network is plotted
+in its own panel and is not silently converted into a recovery leaderboard.
 
 ## Execution and failure protocol
 
@@ -261,8 +344,8 @@ as failures.
 Elapsed time, memory use, hardware rankings, and accelerator comparisons are
 outside this study. They are not collected or reported as comparison outcomes.
 
-Long notebook runs checkpoint after every completed
-`(scenario, trial_id, n_past)` fit. A checkpoint is reusable only when its
+Long notebook runs checkpoint after every completed dataset fit. A checkpoint
+is reusable only when its
 dataset digest, method settings, upstream commit, and software fingerprint match
 the current run.
 Failures remain explicit records and are retried on the next run. Native arrays

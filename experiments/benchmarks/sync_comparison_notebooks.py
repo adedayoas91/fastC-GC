@@ -21,6 +21,31 @@ TIGRAMITE_URL = "https://github.com/jakobrunge/tigramite.git"
 TIGRAMITE_COMMIT = "ff3ff13e1481073b8c5833a6fde1c304627a208e"
 UNN_URL = "https://github.com/jarrycyx/UNN.git"
 UNN_COMMIT = "2212724cce8a7752db564089a7537fecedb0e36d"
+BAGGED_PCMCI_DATA_URL = (
+    "https://github.com/EyringMLClimateGroup/"
+    "debeire24clear_Bagged_TimeSeries_Causality.git"
+)
+BAGGED_PCMCI_DATA_COMMIT = "8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9"
+CAUSAL_CHAMBER_PACKAGE_URL = (
+    "https://github.com/juangamella/causal-chamber-package.git"
+)
+CAUSAL_CHAMBER_PACKAGE_COMMIT = "9fb5d82e391bb91a89a64f2e1c9b6ae8e7aed6d6"
+CAUSAL_CHAMBER_DATA_URL = (
+    "https://causalchamber.s3.eu-central-1.amazonaws.com/"
+    "downloadables/wt_walks_v1.zip"
+)
+CAUSAL_CHAMBER_DATA_SHA256 = (
+    "1ef92d39fff7645a9e6e8cd41311e708362606491590a1534c6a5135d207736e"
+)
+CAUSAL_RIVERS_URL = "https://github.com/CausalRivers/causalrivers.git"
+CAUSAL_RIVERS_COMMIT = "a30154fbb9a2e03bae133c643d7e978df63b3766"
+CAUSAL_RIVERS_DATA_URL = (
+    "https://github.com/CausalRivers/causalrivers/"
+    "releases/download/First_release/product.zip"
+)
+CAUSAL_RIVERS_DATA_SHA256 = (
+    "4f779fa9222653af092046eacba39a955cc65638bfb70fb7e31a32d9d8373b55"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +53,8 @@ class DatasetSpec:
     key: str
     label: str
     truth: str
+    notebook_subdir: tuple[str, ...]
+    evaluation: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,16 +70,43 @@ DATASETS = (
         "sparseVAR",
         "stable sparse VAR",
         "exact positive-lag graph",
+        ("simulations", "sparseVAR"),
+        "recovery",
     ),
     DatasetSpec(
         "lorenz96",
-        "nonlinear Lorenz-96",
+        "Lorenz-96 process",
         "aggregate structural-dependency graph",
+        ("simulations", "lorenz96"),
+        "recovery",
+    ),
+    DatasetSpec(
+        "autocorrelatedSCM",
+        "autocorrelated additive structural causal process",
+        "exact positive-lag graph",
+        ("simulations", "autocorrelatedSCM"),
+        "recovery",
     ),
     DatasetSpec(
         "dream3",
-        "DREAM3 gene-network",
+        "DREAM3 in-silico gene-network",
         "aggregate directed gene-regulatory graph",
+        ("simulations", "dream3"),
+        "recovery",
+    ),
+    DatasetSpec(
+        "causalChamber",
+        "Causal Chambers wind-tunnel measurements",
+        "physical reference network",
+        ("empirical", "causalChamber"),
+        "qualitative",
+    ),
+    DatasetSpec(
+        "causalRivers",
+        "CausalRivers discharge measurements",
+        "river-network reference",
+        ("empirical", "causalRivers"),
+        "qualitative",
     ),
 )
 
@@ -548,6 +602,19 @@ def _runner(method: MethodSpec) -> str:
 
 
 def _method_notebook(dataset: DatasetSpec, method: MethodSpec) -> dict[str, Any]:
+    downstream = (
+        "common graph-orientation conversion and recovery scoring"
+        if dataset.evaluation == "recovery"
+        else "common graph-orientation conversion and visualization"
+    )
+    evaluation_statement = (
+        "This study records causal-structure recovery and does not benchmark runtime."
+        if dataset.evaluation == "recovery"
+        else (
+            "This empirical case study compares the inferred directed graphs "
+            "qualitatively; recovery metrics are not required."
+        )
+    )
     introduction = f'''
 # {method.label} on {dataset.label}
 
@@ -557,8 +624,7 @@ directory and writes one atomic checkpoint per completed dataset fit.
 
 Source: **{method.source}**. External methods call a pinned authors' checkout;
 their estimator code is neither copied nor reimplemented here. Native arrays
-are saved before any common graph-orientation conversion or scoring. This
-study records causal-structure efficacy only and does not benchmark runtime.
+are saved before {downstream}. {evaluation_statement}
 '''
     return _notebook(
         [
@@ -575,12 +641,18 @@ PREPARE_IMPORTS = r'''
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
+import math
 import os
 import platform
 import subprocess
 import sys
 import tempfile
+import types
+import urllib.request
+import zipfile
+import pickle
 from pathlib import Path
 
 EXPECTED_PYTHON = (3, 14)
@@ -591,6 +663,8 @@ if sys.version_info[:2] != EXPECTED_PYTHON:
     )
 
 import numpy as np
+import pandas as pd
+import scipy.special
 
 PROJECT_ROOT = next(
     (
@@ -648,9 +722,38 @@ def series_digest(series):
     ).hexdigest()
 
 
-def save_bundle(path, *, series, aggregate_truth, metadata):
+def save_bundle(
+    path,
+    *,
+    series,
+    metadata,
+    aggregate_truth=None,
+    lag_truth=None,
+    reference_graph=None,
+    extra_arrays=None,
+):
+    graph_arrays = (aggregate_truth, lag_truth, reference_graph)
+    if sum(value is not None for value in graph_arrays) > 1:
+        raise ValueError("Provide at most one truth or reference graph.")
     path.parent.mkdir(parents=True, exist_ok=True)
-    digest = series_digest(series)
+    arrays = {"series": np.asarray(series, dtype=float)}
+    if lag_truth is not None:
+        arrays["lag_truth"] = np.asarray(lag_truth, dtype=bool)
+    elif aggregate_truth is not None:
+        arrays["aggregate_truth"] = np.asarray(
+            aggregate_truth,
+            dtype=bool,
+        )
+    elif reference_graph is not None:
+        arrays["reference_graph"] = np.asarray(
+            reference_graph,
+            dtype=bool,
+        )
+    for name, value in (extra_arrays or {}).items():
+        if name in arrays:
+            raise ValueError(f"Duplicate bundle array name: {name}.")
+        arrays[name] = np.asarray(value)
+    digest = series_digest(arrays["series"])
     metadata = {**metadata, "data_digest": digest}
     metadata_path = path.with_suffix(".json")
     if path.exists() or metadata_path.exists():
@@ -658,19 +761,19 @@ def save_bundle(path, *, series, aggregate_truth, metadata):
             raise FileNotFoundError(f"Incomplete dataset bundle at {path}.")
         recorded = json.loads(metadata_path.read_text(encoding="utf-8"))
         with np.load(path, allow_pickle=False) as stored:
-            saved_series = np.asarray(stored["series"], dtype=float)
-        if series_digest(saved_series) != digest or recorded != metadata:
+            saved = {name: np.asarray(stored[name]) for name in stored.files}
+        arrays_match = set(saved) == set(arrays) and all(
+            np.array_equal(saved[name], value)
+            for name, value in arrays.items()
+        )
+        if not arrays_match or recorded != metadata:
             raise ValueError(f"Existing bundle does not match request: {path}.")
         return False
 
     with tempfile.NamedTemporaryFile(
         mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
     ) as handle:
-        np.savez_compressed(
-            handle,
-            series=np.asarray(series, dtype=float),
-            aggregate_truth=np.asarray(aggregate_truth, dtype=bool),
-        )
+        np.savez_compressed(handle, **arrays)
         temporary_data = Path(handle.name)
     os.replace(temporary_data, path)
 
@@ -685,6 +788,48 @@ def save_bundle(path, *, series, aggregate_truth, metadata):
         handle.write("\n")
         temporary_metadata = Path(handle.name)
     os.replace(temporary_metadata, metadata_path)
+    return True
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download_verified(url, path, expected_sha256):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_file():
+        observed = file_digest(path)
+        if observed != expected_sha256:
+            raise ValueError(
+                f"Archive digest mismatch for {path}: {observed}."
+            )
+        return False
+
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        delete=False,
+    ) as handle:
+        temporary = Path(handle.name)
+        with urllib.request.urlopen(url, timeout=120) as response:
+            while chunk := response.read(1024 * 1024):
+                handle.write(chunk)
+    try:
+        observed = file_digest(temporary)
+        if observed != expected_sha256:
+            raise ValueError(
+                f"Downloaded archive digest mismatch: {observed}."
+            )
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
     return True
 '''
 
@@ -744,6 +889,8 @@ for n_variables in VARIABLES:
                     "n_variables": n_variables,
                     "n_samples": n_samples,
                     "fit_order": FIT_ORDER,
+                    "regime": "forcing10-dt0.1-sd0.1",
+                    "noise": "gaussian-sd0.1",
                     "series_layout": "variable, time",
                     "truth_layout": "source, target",
                     "truth_scope": "aggregate structural dependency",
@@ -755,6 +902,279 @@ for n_variables in VARIABLES:
     if MAX_NEW_DATASETS is not None and created >= MAX_NEW_DATASETS:
         break
 print(f"Created {{created}} new Lorenz-96 bundles. Rerun to resume.")
+'''
+
+
+AUTOCORRELATED_PREPARE = f'''
+DATASET_KEY = "autocorrelatedSCM"
+DATASET_DIR = (
+    PROJECT_ROOT / "data" / "shared" / "causal-comparison"
+    / DATASET_KEY / "datasets"
+)
+GENERATOR_ROOT = Path(
+    os.environ.get(
+        "BAGGED_PCMCI_DATA_ROOT",
+        PROJECT_ROOT
+        / "external"
+        / "debeire24clear_Bagged_TimeSeries_Causality",
+    )
+).expanduser()
+UPSTREAM_REVISION = verify_upstream_revision(
+    GENERATOR_ROOT,
+    expected_url="{BAGGED_PCMCI_DATA_URL}",
+    expected_commit="{BAGGED_PCMCI_DATA_COMMIT}",
+)
+generator_path = GENERATOR_ROOT / "generate_data_mod.py"
+spec = importlib.util.spec_from_file_location(
+    "debeire24_generate_data_mod",
+    generator_path,
+)
+if spec is None or spec.loader is None:
+    raise ImportError(f"Could not load the author generator at {{generator_path}}.")
+author_generator = importlib.util.module_from_spec(spec)
+temporary_networkx_module = False
+if importlib.util.find_spec("networkx") is None:
+    generator_source = generator_path.read_text(encoding="utf-8")
+    if "nx." in generator_source:
+        raise ModuleNotFoundError(
+            "The pinned generator now uses networkx; install the author "
+            "repository's dependencies before running this notebook."
+        )
+    # The pinned file imports networkx but never references its `nx` alias.
+    # Supplying an empty module avoids adding an unused project dependency
+    # while leaving every executed generator definition unchanged.
+    sys.modules["networkx"] = types.ModuleType("networkx")
+    temporary_networkx_module = True
+try:
+    spec.loader.exec_module(author_generator)
+finally:
+    if temporary_networkx_module:
+        sys.modules.pop("networkx", None)
+
+
+def identity_link(x):
+    return x
+
+
+def quadratic_taper_link(x):
+    return x + 5.0 * x**2 * np.exp(-(x**2) / 20.0)
+
+
+def make_noises(random_state, choices, n_variables):
+    functions = []
+    assigned = []
+    scales = []
+    weibull_shape = 2.0
+    weibull_mean = scipy.special.gamma(1.0 / weibull_shape + 1.0)
+    weibull_variance = (
+        scipy.special.gamma(2.0 / weibull_shape + 1.0)
+        - weibull_mean**2
+    )
+    for _ in range(n_variables):
+        noise_type = str(random_state.choice(choices))
+        scale = float(random_state.uniform(0.5, 2.0))
+        if noise_type == "gaussian":
+            def draw(size, scale=scale):
+                return scale * random_state.randn(size)
+        elif noise_type == "weibull":
+            def draw(size, scale=scale):
+                values = random_state.weibull(weibull_shape, size=size)
+                return scale * (values - weibull_mean) / np.sqrt(
+                    weibull_variance
+                )
+        else:
+            raise ValueError(f"Unknown noise type: {{noise_type}}.")
+        functions.append(draw)
+        assigned.append(noise_type)
+        scales.append(scale)
+    return functions, assigned, scales
+
+
+def lag_arrays(links, *, n_variables, fit_order):
+    truth = np.zeros((fit_order, n_variables, n_variables), dtype=bool)
+    coefficients = np.zeros((fit_order, n_variables, n_variables), dtype=float)
+    function_codes = np.full(
+        (fit_order, n_variables, n_variables),
+        -1,
+        dtype=np.int8,
+    )
+    for target, parents in links.items():
+        for (source, signed_lag), coefficient, function in parents:
+            if signed_lag >= 0:
+                raise ValueError("The matched comparison arm must contain only lags.")
+            lag_index = abs(int(signed_lag)) - 1
+            truth[lag_index, source, target] = True
+            coefficients[lag_index, source, target] = float(coefficient)
+            function_codes[lag_index, source, target] = (
+                0 if function.__name__ in {{"lin", "identity_link"}} else 1
+            )
+    return truth, coefficients, function_codes
+
+
+# One-factor-at-a-time design around the paper-matched reference cell. Link
+# functions and innovation families are described directly rather than being
+# split into separate linear/nonlinear experiment trees.
+REGIMES = (
+    {{"regime": "reference", "n_variables": 10, "n_samples": 500,
+      "max_auto": 0.60, "functions": ("identity",),
+      "noise_types": ("gaussian",)}},
+    {{"regime": "variables-5", "n_variables": 5, "n_samples": 500,
+      "max_auto": 0.60, "functions": ("identity",),
+      "noise_types": ("gaussian",)}},
+    {{"regime": "variables-20", "n_variables": 20, "n_samples": 500,
+      "max_auto": 0.60, "functions": ("identity",),
+      "noise_types": ("gaussian",)}},
+    {{"regime": "samples-250", "n_variables": 10, "n_samples": 250,
+      "max_auto": 0.60, "functions": ("identity",),
+      "noise_types": ("gaussian",)}},
+    {{"regime": "samples-1000", "n_variables": 10, "n_samples": 1000,
+      "max_auto": 0.60, "functions": ("identity",),
+      "noise_types": ("gaussian",)}},
+    {{"regime": "autocorrelation-0.20", "n_variables": 10,
+      "n_samples": 500, "max_auto": 0.20,
+      "functions": ("identity",), "noise_types": ("gaussian",)}},
+    {{"regime": "autocorrelation-0.95", "n_variables": 10,
+      "n_samples": 500, "max_auto": 0.95,
+      "functions": ("identity",), "noise_types": ("gaussian",)}},
+    {{"regime": "mixed-link-functions", "n_variables": 10,
+      "n_samples": 500, "max_auto": 0.60,
+      "functions": ("identity", "quadratic-taper"),
+      "noise_types": ("gaussian",)}},
+    {{"regime": "mixed-innovations", "n_variables": 10,
+      "n_samples": 500, "max_auto": 0.60,
+      "functions": ("identity",),
+      "noise_types": ("gaussian", "weibull")}},
+    {{"regime": "cross-link-null", "n_variables": 10,
+      "n_samples": 500, "max_auto": 0.60,
+      "functions": ("identity",), "noise_types": ("gaussian",),
+      "cross_link_factor": 0.0}},
+)
+FIT_ORDER = 5
+REPLICATES = 50
+SEED_START = 30_000
+MAX_STATIONARITY_ATTEMPTS = 1000
+MAX_NEW_DATASETS: int | None = None
+
+created = 0
+stop_requested = False
+for regime_index, regime in enumerate(REGIMES):
+    n_variables = int(regime["n_variables"])
+    n_samples = int(regime["n_samples"])
+    n_cross_links = math.floor(
+        float(regime.get("cross_link_factor", 1.5)) * n_variables
+    )
+    functions = [
+        identity_link if name == "identity" else quadratic_taper_link
+        for name in regime["functions"]
+    ]
+    positive_couplings = np.arange(0.1, 0.51, 0.1).tolist()
+    couplings = positive_couplings + [-value for value in positive_couplings]
+    auto_coefficients = np.arange(
+        max(0.0, float(regime["max_auto"]) - 0.3),
+        float(regime["max_auto"]) + 0.01,
+        0.05,
+    ).tolist()
+
+    for replicate in range(REPLICATES):
+        if MAX_NEW_DATASETS is not None and created >= MAX_NEW_DATASETS:
+            stop_requested = True
+            break
+        requested_seed = SEED_START + regime_index * REPLICATES + replicate
+        model_seed = requested_seed
+        nonstationary = True
+        for retry in range(MAX_STATIONARITY_ATTEMPTS):
+            random_state = np.random.RandomState(model_seed)
+            links = author_generator.generate_random_contemp_model(
+                N=n_variables,
+                L=n_cross_links,
+                coupling_coeffs=couplings,
+                coupling_funcs=functions,
+                auto_coeffs=auto_coefficients,
+                tau_max=FIT_ORDER,
+                contemp_fraction=0.0,
+                random_state=random_state,
+            )
+            noises, assigned_noises, noise_scales = make_noises(
+                random_state,
+                regime["noise_types"],
+                n_variables,
+            )
+            generated, nonstationary = (
+                author_generator.generate_nonlinear_contemp_timeseries(
+                    links=links,
+                    T=n_samples + 10_000,
+                    noises=noises,
+                    random_state=random_state,
+                )
+            )
+            if not nonstationary:
+                series_time_variable = np.asarray(generated[:n_samples], dtype=float)
+                break
+            model_seed += 10_000
+        if nonstationary:
+            raise RuntimeError(
+                f"No stationary process found for {{regime['regime']}} "
+                f"replicate {{replicate}} after {{MAX_STATIONARITY_ATTEMPTS}} attempts."
+            )
+
+        lag_truth, lag_coefficients, lag_function_codes = lag_arrays(
+            links,
+            n_variables=n_variables,
+            fit_order=FIT_ORDER,
+        )
+        dataset_id = (
+            f"acscm-{{regime['regime']}}-seed{{requested_seed}}"
+        )
+        was_created = save_bundle(
+            DATASET_DIR / f"{{dataset_id}}.npz",
+            series=series_time_variable.T,
+            lag_truth=lag_truth,
+            extra_arrays={{
+                "lag_coefficients": lag_coefficients,
+                "lag_function_codes": lag_function_codes,
+            }},
+            metadata={{
+                "dataset_id": dataset_id,
+                "dataset": DATASET_KEY,
+                "generator": "generate_data_mod.py",
+                "generator_source": "{BAGGED_PCMCI_DATA_URL}",
+                "upstream_commit": UPSTREAM_REVISION.commit,
+                "regime": regime["regime"],
+                "seed": requested_seed,
+                "accepted_model_seed": model_seed,
+                "stationarity_retries": retry,
+                "n_variables": n_variables,
+                "n_samples": n_samples,
+                "fit_order": FIT_ORDER,
+                "cross_link_count": n_cross_links,
+                "cross_link_factor": regime.get("cross_link_factor", 1.5),
+                "maximum_autoregressive_coefficient": regime["max_auto"],
+                "available_coupling_coefficients": couplings,
+                "available_link_functions": list(regime["functions"]),
+                "available_noise_types": list(regime["noise_types"]),
+                "noise": "+".join(regime["noise_types"]),
+                "assigned_noise_types": assigned_noises,
+                "assigned_noise_scales": noise_scales,
+                "source_paper_contemporaneous_fraction": 0.30,
+                "used_contemporaneous_fraction": 0.0,
+                "adaptation": (
+                    "Contemporaneous links are disabled so every method is "
+                    "evaluated on the common positive-lag estimand."
+                ),
+                "series_layout": "variable, time",
+                "truth_layout": "lag, source, target",
+                "coefficient_layout": "lag, source, target",
+                "function_code_map": {{"0": "identity", "1": "quadratic-taper"}},
+                "truth_scope": "exact positive-lag graph",
+            }},
+        )
+        created += int(was_created)
+    if stop_requested:
+        break
+print(
+    f"Created {{created}} new autocorrelated-SCM bundles. "
+    "Rerun to verify existing bundles and resume."
+)
 '''
 
 
@@ -813,6 +1233,7 @@ try:
                 "upstream_commit": UPSTREAM_REVISION.commit,
                 "dataset_index": dataset_id_number,
                 "fit_order": FIT_ORDER,
+                "regime": "dream3-size100",
                 "series_layout": "variable, time",
                 "truth_layout": "source, target",
                 "truth_scope": "aggregate directed gene-regulatory graph",
@@ -825,14 +1246,311 @@ print(f"Created {{created}} new DREAM3 bundles. Rerun to resume.")
 '''
 
 
+CAUSAL_CHAMBER_PREPARE = f'''
+DATASET_KEY = "causalChamber"
+DATASET_DIR = (
+    PROJECT_ROOT / "data" / "shared" / "causal-comparison"
+    / DATASET_KEY / "datasets"
+)
+PACKAGE_ROOT = Path(
+    os.environ.get(
+        "CAUSAL_CHAMBER_PACKAGE_ROOT",
+        PROJECT_ROOT / "external" / "causal-chamber-package",
+    )
+).expanduser()
+PACKAGE_REVISION = verify_upstream_revision(
+    PACKAGE_ROOT,
+    expected_url="{CAUSAL_CHAMBER_PACKAGE_URL}",
+    expected_commit="{CAUSAL_CHAMBER_PACKAGE_COMMIT}",
+)
+ARCHIVE_PATH = Path(
+    os.environ.get(
+        "CAUSAL_CHAMBER_ARCHIVE",
+        PROJECT_ROOT / "external" / "datasets" / "wt_walks_v1.zip",
+    )
+).expanduser()
+download_verified(
+    "{CAUSAL_CHAMBER_DATA_URL}",
+    ARCHIVE_PATH,
+    "{CAUSAL_CHAMBER_DATA_SHA256}",
+)
+
+VARIABLES = (
+    "hatch", "load_in", "load_out", "pot_1", "pot_2",
+    "current_in", "current_out", "pressure_downwind",
+    "pressure_upwind", "rpm_in", "rpm_out", "mic",
+    "pressure_intake", "pressure_ambient", "signal_1", "signal_2",
+)
+EXPERIMENTS = ("actuators_random_walk_1",)
+FIT_ORDER = 10
+MAX_NEW_DATASETS: int | None = None
+
+reference_path = (
+    PACKAGE_ROOT
+    / "causalchamber"
+    / "ground_truth"
+    / "adjacencies"
+    / "adjacency_wt_standard.csv"
+)
+reference_frame = pd.read_csv(reference_path, index_col=0)
+reference_graph = reference_frame.loc[list(VARIABLES), list(VARIABLES)].to_numpy(
+    dtype=bool
+)
+
+created = 0
+with zipfile.ZipFile(ARCHIVE_PATH) as archive:
+    for experiment in EXPERIMENTS:
+        if MAX_NEW_DATASETS is not None and created >= MAX_NEW_DATASETS:
+            break
+        member = f"wt_walks_v1/{{experiment}}.csv"
+        if member not in archive.namelist():
+            raise FileNotFoundError(f"{{member}} is absent from {{ARCHIVE_PATH}}.")
+        with archive.open(member) as handle:
+            frame = pd.read_csv(handle, usecols=list(VARIABLES))
+        minima = frame.min(axis=0)
+        spans = frame.max(axis=0) - minima
+        if (spans <= 0).any():
+            constant = spans.index[spans <= 0].tolist()
+            raise ValueError(f"Constant wind-tunnel variables: {{constant}}.")
+        normalized = (frame - minima) / spans
+        series = normalized.to_numpy(dtype=float).T
+        dataset_id = f"causal-chamber-wt-{{experiment.replace('_', '-')}}"
+        was_created = save_bundle(
+            DATASET_DIR / f"{{dataset_id}}.npz",
+            series=series,
+            reference_graph=reference_graph,
+            metadata={{
+                "dataset_id": dataset_id,
+                "dataset": DATASET_KEY,
+                "data_source": "{CAUSAL_CHAMBER_DATA_URL}",
+                "data_archive_sha256": "{CAUSAL_CHAMBER_DATA_SHA256}",
+                "data_license": "CC BY 4.0",
+                "ground_truth_package_source": "{CAUSAL_CHAMBER_PACKAGE_URL}",
+                "upstream_commit": PACKAGE_REVISION.commit,
+                "experiment": experiment,
+                "fit_order": FIT_ORDER,
+                "regime": "wind-tunnel-actuator-random-walk",
+                "variable_names": list(VARIABLES),
+                "n_variables": int(series.shape[0]),
+                "n_samples": int(series.shape[1]),
+                "preprocessing": "per-variable min-max normalization",
+                "series_layout": "variable, time",
+                "reference_layout": "source, target",
+                "reference_scope": (
+                    "physical causal model supplied by the Causal Chambers "
+                    "authors; used as a contextual graph, not as a mandatory "
+                    "lag-resolved scoring target"
+                ),
+                "evaluation": "qualitative inferred-graph comparison",
+            }},
+        )
+        created += int(was_created)
+print(
+    f"Created {{created}} new Causal Chambers bundles. "
+    "Rerun to verify existing bundles and resume."
+)
+'''
+
+
+CAUSAL_RIVERS_PREPARE = f'''
+DATASET_KEY = "causalRivers"
+DATASET_DIR = (
+    PROJECT_ROOT / "data" / "shared" / "causal-comparison"
+    / DATASET_KEY / "datasets"
+)
+UPSTREAM_ROOT = Path(
+    os.environ.get(
+        "CAUSAL_RIVERS_ROOT",
+        PROJECT_ROOT / "external" / "causalrivers",
+    )
+).expanduser()
+UPSTREAM_REVISION = verify_upstream_revision(
+    UPSTREAM_ROOT,
+    expected_url="{CAUSAL_RIVERS_URL}",
+    expected_commit="{CAUSAL_RIVERS_COMMIT}",
+)
+if str(UPSTREAM_ROOT) not in sys.path:
+    sys.path.insert(0, str(UPSTREAM_ROOT))
+try:
+    import networkx as nx
+except ModuleNotFoundError as error:
+    raise ModuleNotFoundError(
+        "CausalRivers preparation requires networkx from the official "
+        "CausalRivers environment. Install that environment before running "
+        "this notebook; networkx is not a fastC-GC estimator dependency."
+    ) from error
+from tools.graph_sampling_tools import get_all_subgraphs
+
+ARCHIVE_PATH = Path(
+    os.environ.get(
+        "CAUSAL_RIVERS_ARCHIVE",
+        PROJECT_ROOT / "external" / "datasets" / "causalrivers-product.zip",
+    )
+).expanduser()
+download_verified(
+    "{CAUSAL_RIVERS_DATA_URL}",
+    ARCHIVE_PATH,
+    "{CAUSAL_RIVERS_DATA_SHA256}",
+)
+
+REGIONS = {{
+    "east-germany": (
+        "product/rivers_east_germany.p",
+        "product/rivers_ts_east_germany.csv",
+    ),
+    "bavaria": (
+        "product/rivers_bavaria.p",
+        "product/rivers_ts_bavaria.csv",
+    ),
+}}
+NODES_PER_SUBGRAPH = 5
+SUBGRAPHS_PER_REGION = 5
+FIT_ORDER = 5
+RESOLUTION = "6h"
+MAX_NEW_DATASETS: int | None = None
+
+
+def deterministic_subgraphs(graph):
+    candidates = sorted(
+        tuple(sorted(int(node) for node in candidate))
+        for candidate in get_all_subgraphs(graph, n_vars=NODES_PER_SUBGRAPH)
+    )
+    if len(candidates) < SUBGRAPHS_PER_REGION:
+        raise ValueError(
+            f"Only {{len(candidates)}} candidate subgraphs were found."
+        )
+    indices = np.linspace(
+        0,
+        len(candidates) - 1,
+        SUBGRAPHS_PER_REGION,
+        dtype=int,
+    )
+    return candidates, [(int(index), candidates[int(index)]) for index in indices]
+
+
+created = 0
+stop_requested = False
+with zipfile.ZipFile(ARCHIVE_PATH) as archive:
+    for region, (graph_member, series_member) in REGIONS.items():
+        # The archive hash is checked before loading this official NetworkX pickle.
+        graph = pickle.loads(archive.read(graph_member))
+        candidates, selections = deterministic_subgraphs(graph)
+        required_nodes = sorted({{
+            node for _, nodes in selections for node in nodes
+        }})
+        with archive.open(series_member) as handle:
+            raw = pd.read_csv(
+                handle,
+                index_col="datetime",
+                usecols=["datetime", *map(str, required_nodes)],
+            )
+        raw["dt"] = pd.to_datetime(raw.index).round(RESOLUTION).values
+        processed = raw.groupby("dt").mean()
+        minima = processed.min(axis=0)
+        spans = processed.max(axis=0) - minima
+        if spans.isna().any() or (spans <= 0).any():
+            invalid = spans.index[spans.isna() | (spans <= 0)].tolist()
+            raise ValueError(f"Unusable river stations in {{region}}: {{invalid}}.")
+        processed = (processed - minima) / spans
+        processed = processed.interpolate()
+
+        for selection_rank, (candidate_index, nodes) in enumerate(selections):
+            if MAX_NEW_DATASETS is not None and created >= MAX_NEW_DATASETS:
+                stop_requested = True
+                break
+            names = [str(node) for node in nodes]
+            sample = processed[names]
+            complete_rows = np.flatnonzero(~sample.isna().any(axis=1).to_numpy())
+            if not len(complete_rows):
+                raise ValueError(
+                    f"No complete observations for {{region}} nodes {{nodes}}."
+                )
+            sample = sample.iloc[complete_rows[0] : complete_rows[-1] + 1]
+            if sample.isna().any().any():
+                raise ValueError(
+                    f"Interior missing values remain for {{region}} nodes {{nodes}}."
+                )
+
+            node_index = {{node: index for index, node in enumerate(nodes)}}
+            reference_graph = np.zeros(
+                (NODES_PER_SUBGRAPH, NODES_PER_SUBGRAPH),
+                dtype=bool,
+            )
+            for source, target in graph.subgraph(nodes).edges:
+                reference_graph[node_index[source], node_index[target]] = True
+            positions = np.asarray(
+                [graph.nodes[node].get("p", (np.nan, np.nan)) for node in nodes],
+                dtype=float,
+            )
+            dataset_id = (
+                f"causal-rivers-{{region}}-n{{NODES_PER_SUBGRAPH}}-"
+                f"sample{{selection_rank + 1:02d}}"
+            )
+            was_created = save_bundle(
+                DATASET_DIR / f"{{dataset_id}}.npz",
+                series=sample.to_numpy(dtype=float).T,
+                reference_graph=reference_graph,
+                extra_arrays={{"node_positions": positions}},
+                metadata={{
+                    "dataset_id": dataset_id,
+                    "dataset": DATASET_KEY,
+                    "data_source": "{CAUSAL_RIVERS_DATA_URL}",
+                    "data_archive_sha256": "{CAUSAL_RIVERS_DATA_SHA256}",
+                    "data_license": "Data licence Germany (dl-de)",
+                    "sampling_source": "{CAUSAL_RIVERS_URL}",
+                    "upstream_commit": UPSTREAM_REVISION.commit,
+                    "region": region,
+                    "regime": region,
+                    "fit_order": FIT_ORDER,
+                    "resolution": RESOLUTION,
+                    "variable_names": names,
+                    "node_ids": list(nodes),
+                    "candidate_index": candidate_index,
+                    "candidate_count": len(candidates),
+                    "selection_rank": selection_rank,
+                    "sampling_strategy": (
+                        "deterministic evenly spaced selection from the sorted "
+                        "output of the authors' get_all_subgraphs function"
+                    ),
+                    "preprocessing": (
+                        "6-hour rounded means, per-station min-max normalization, "
+                        "linear interpolation, and removal of incomplete end rows"
+                    ),
+                    "n_variables": NODES_PER_SUBGRAPH,
+                    "n_samples": int(sample.shape[0]),
+                    "series_layout": "variable, time",
+                    "reference_layout": "source, target",
+                    "reference_scope": (
+                        "constructed river-connectivity network supplied with "
+                        "CausalRivers; used as a contextual graph rather than a "
+                        "mandatory exhaustive causal scoring target"
+                    ),
+                    "evaluation": "qualitative inferred-graph comparison",
+                }},
+            )
+            created += int(was_created)
+        if stop_requested:
+            break
+print(
+    f"Created {{created}} new CausalRivers bundles. "
+    "Rerun to verify existing bundles and resume."
+)
+'''
+
+
 def _prepare_notebook(dataset: DatasetSpec) -> dict[str, Any]:
+    shared_graph = (
+        "the same declared ground truth"
+        if dataset.evaluation == "recovery"
+        else "the same optional contextual reference network"
+    )
     introduction = f'''
 # Prepare shared {dataset.label} data
 
 This notebook creates or verifies the frozen `{dataset.key}` bundles used by
 all seven method notebooks in this directory. Data generation and acquisition
 are kept separate from model fitting so every method reads byte-identical
-observations and the same declared ground truth.
+observations and {shared_graph}.
 '''
     if dataset.key == "sparseVAR":
         cells = [
@@ -847,17 +1565,82 @@ observations and the same declared ground truth.
             _code(SHARED_EXTERNAL_PREPARE_HELPERS),
             _code(LORENZ_PREPARE),
         ]
+    elif dataset.key == "autocorrelatedSCM":
+        cells = [
+            _markdown(
+                introduction
+                + r'''
+
+The process follows the simulation family used by Debeire et al. (2024):
+
+\[
+X_t^j = a_j X_{t-1}^j
+  + \sum_i c_i f_i(X_{t-\tau_i}^i) + \eta_t^j.
+\]
+
+The identity link is \(f(x)=x\). The second link option is
+\(f(x)=x+5x^2\exp(-x^2/20)\). Cross-link coefficients are sampled from
+\(\{\pm0.1,\ldots,\pm0.5\}\), lags range from 1 to 5, innovation scales
+range from 0.5 to 2, and each accepted process passes the authors'
+stationarity check. The study varies variable count, sample count,
+autocorrelation, link-function set, and innovation family one factor at a
+time around a reference cell, with 50 seeds per cell. A cross-link-free cell
+measures false positives when the cross-variable graph is empty.
+
+The paper's broad simulation includes 30% contemporaneous cross-links. This
+matched comparison arm sets that fraction to zero because all seven methods
+can be scored on a shared positive-lag graph, whereas they do not expose a
+common contemporaneous estimand. This is a declared adaptation, not a claim of
+literal reproduction. The notebook calls the official generator from its
+pinned authors' checkout and records every accepted seed and rejected-model
+count.
+'''
+            ),
+            _code(PREPARE_IMPORTS),
+            _code(SHARED_EXTERNAL_PREPARE_HELPERS),
+            _code(AUTOCORRELATED_PREPARE),
+        ]
     elif dataset.key == "dream3":
         cells = [
             _markdown(
                 introduction
-                + "\nThe CUTS+ repository references DREAM3 files that it does not "
+                + "\nDREAM3 Size 100 is an in-silico GeneNetWeaver benchmark, "
+                "not a real-world measurement dataset. The CUTS+ repository "
+                "references DREAM3 files that it does not "
                 "distribute. This notebook therefore validates a user-supplied, "
                 "licensed copy instead of downloading an unverified mirror."
             ),
             _code(PREPARE_IMPORTS),
             _code(SHARED_EXTERNAL_PREPARE_HELPERS),
             _code(DREAM_PREPARE),
+        ]
+    elif dataset.key == "causalChamber":
+        cells = [
+            _markdown(
+                introduction
+                + "\nThis case study uses measured wind-tunnel time series from "
+                "the Causal Chambers project. The supplied physical causal "
+                "model is retained as a separately labelled reference panel; "
+                "the empirical comparison does not require recovery metrics."
+            ),
+            _code(PREPARE_IMPORTS),
+            _code(SHARED_EXTERNAL_PREPARE_HELPERS),
+            _code(CAUSAL_CHAMBER_PREPARE),
+        ]
+    elif dataset.key == "causalRivers":
+        cells = [
+            _markdown(
+                introduction
+                + "\nThis case study uses measured river-discharge time series. "
+                "Five connected five-station subgraphs are selected "
+                "deterministically from each of the eastern-Germany and Bavaria "
+                "networks using the authors' sampling routine. The constructed "
+                "river network is visual context, not a required exhaustive "
+                "causal scoring target."
+            ),
+            _code(PREPARE_IMPORTS),
+            _code(SHARED_EXTERNAL_PREPARE_HELPERS),
+            _code(CAUSAL_RIVERS_PREPARE),
         ]
     else:
         raise KeyError(dataset.key)
@@ -937,6 +1720,7 @@ identifier_columns = [
     "n_samples",
     "fit_order",
     "noise",
+    "regime",
     "expected",
     "missing",
     "attempted",
@@ -970,20 +1754,271 @@ usable continuous scores and both edge classes are present.
     )
 
 
+EMPIRICAL_VISUALIZATION_IMPORTS = r'''
+from __future__ import annotations
+
+import json
+import math
+import platform
+import sys
+from pathlib import Path
+
+EXPECTED_PYTHON = (3, 14)
+if sys.version_info[:2] != EXPECTED_PYTHON:
+    raise RuntimeError(
+        "This notebook requires CPython 3.14; "
+        f"found {platform.python_version()}."
+    )
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch
+import numpy as np
+
+PROJECT_ROOT = next(
+    (
+        path
+        for path in (Path.cwd().resolve(), *Path.cwd().resolve().parents)
+        if (path / "src" / "fastCGC" / "__init__.py").exists()
+    ),
+    None,
+)
+if PROJECT_ROOT is None:
+    raise FileNotFoundError("Could not locate the fastC-GC project root.")
+SOURCE_ROOT = PROJECT_ROOT / "src"
+if str(SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from fastCGC.experiments.comparison_scoring import collect_dataset_graphs
+'''
+
+
+def _visualization_notebook(dataset: DatasetSpec) -> dict[str, Any]:
+    method_keys = ",\n    ".join(f'"{method.key}"' for method in METHODS)
+    method_labels = ",\n    ".join(
+        f'"{method.key}": "{method.label}"' for method in METHODS
+    )
+    settings = f'''
+DATASET_KEY = "{dataset.key}"
+METHODS = (
+    {method_keys},
+)
+METHOD_LABELS = {{
+    {method_labels},
+}}
+
+# Collection is safe to rerun. No recovery metric is computed here.
+artifacts = collect_dataset_graphs(
+    PROJECT_ROOT,
+    DATASET_KEY,
+    methods=METHODS,
+)
+edge_table = artifacts.edge_table
+status_table = artifacts.status_table
+reference_edges = artifacts.reference_edges
+
+print(status_table["status"].value_counts(dropna=False).to_string())
+print(f"Inferred edge table: {{artifacts.edge_table_path}}")
+print(f"Run-status table: {{artifacts.status_table_path}}")
+print(f"Reference edge table: {{artifacts.reference_edges_path}}")
+'''
+    plotting = r'''
+# Choose one measured system for the figure. Set an explicit identifier to
+# reproduce a different bundle; the edge tables retain every completed bundle.
+PLOT_DATASET_ID: str | None = None
+
+dataset_ids = sorted(status_table["dataset_id"].unique())
+if not dataset_ids:
+    raise ValueError("No empirical dataset bundles were collected.")
+plot_dataset_id = PLOT_DATASET_ID or dataset_ids[0]
+if plot_dataset_id not in dataset_ids:
+    raise ValueError(f"Unknown PLOT_DATASET_ID: {plot_dataset_id}.")
+
+bundle_path = (
+    PROJECT_ROOT
+    / "data"
+    / "shared"
+    / "causal-comparison"
+    / DATASET_KEY
+    / "datasets"
+    / f"{plot_dataset_id}.npz"
+)
+metadata = json.loads(bundle_path.with_suffix(".json").read_text(encoding="utf-8"))
+names = [str(name) for name in metadata["variable_names"]]
+with np.load(bundle_path, allow_pickle=False) as stored:
+    stored_positions = (
+        np.asarray(stored["node_positions"], dtype=float)
+        if "node_positions" in stored.files
+        else None
+    )
+
+
+def graph_positions(node_names, positions=None):
+    if positions is not None and positions.shape == (len(node_names), 2):
+        if np.isfinite(positions).all() and np.ptp(positions, axis=0).max() > 0:
+            centered = positions - positions.mean(axis=0, keepdims=True)
+            scale = np.max(np.linalg.norm(centered, axis=1))
+            if scale > 0:
+                return centered / scale
+    angles = np.linspace(0.0, 2.0 * np.pi, len(node_names), endpoint=False)
+    return np.column_stack((np.cos(angles), np.sin(angles)))
+
+
+def plot_directed_graph(ax, node_names, edges, title, positions=None):
+    coordinates = graph_positions(node_names, positions)
+    index = {name: position for name, position in zip(node_names, coordinates)}
+    directed_pairs = set(zip(edges.get("source", []), edges.get("target", [])))
+    for edge in edges.itertuples(index=False):
+        start = index[str(edge.source)]
+        end = index[str(edge.target)]
+        reverse_exists = (str(edge.target), str(edge.source)) in directed_pairs
+        score = getattr(edge, "score", np.nan)
+        strength = float(score) if np.isfinite(score) else 0.65
+        strength = float(np.clip(abs(strength), 0.15, 1.0))
+        arrow = FancyArrowPatch(
+            start,
+            end,
+            arrowstyle="-|>",
+            mutation_scale=9,
+            linewidth=0.7 + 1.3 * strength,
+            color="#2f5597",
+            alpha=0.35 + 0.6 * strength,
+            connectionstyle=f"arc3,rad={0.13 if reverse_exists else 0.0}",
+            shrinkA=14,
+            shrinkB=14,
+            zorder=1,
+        )
+        ax.add_patch(arrow)
+    ax.scatter(
+        coordinates[:, 0],
+        coordinates[:, 1],
+        s=120,
+        facecolor="#f4b183",
+        edgecolor="#7f6000",
+        linewidth=0.8,
+        zorder=2,
+    )
+    for name, (x_value, y_value) in zip(node_names, coordinates):
+        horizontal_alignment = (
+            "left" if x_value > 0.08 else "right" if x_value < -0.08 else "center"
+        )
+        vertical_alignment = "bottom" if y_value >= 0 else "top"
+        ax.text(
+            x_value * 1.08,
+            y_value * 1.08,
+            name,
+            ha=horizontal_alignment,
+            va=vertical_alignment,
+            fontsize=6,
+            clip_on=False,
+        )
+    if edges.empty:
+        ax.text(
+            0.5,
+            0.03,
+            "No selected cross-variable edges",
+            transform=ax.transAxes,
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            color="#666666",
+        )
+    ax.set_title(title, fontsize=9)
+    ax.set_aspect("equal")
+    ax.set_xlim(-1.25, 1.25)
+    ax.set_ylim(-1.25, 1.25)
+    ax.axis("off")
+
+
+panels = []
+reference_for_plot = reference_edges[
+    reference_edges["dataset_id"] == plot_dataset_id
+]
+if not reference_for_plot.empty:
+    panels.append(("Reference network (context only)", reference_for_plot))
+for method in METHODS:
+    method_edges = edge_table[
+        (edge_table["dataset_id"] == plot_dataset_id)
+        & (edge_table["method"] == method)
+    ]
+    panels.append((METHOD_LABELS[method], method_edges))
+
+n_columns = 3
+n_rows = math.ceil(len(panels) / n_columns)
+figure, axes = plt.subplots(
+    n_rows,
+    n_columns,
+    figsize=(5.4 * n_columns, 5.0 * n_rows),
+    squeeze=False,
+)
+for axis, (title, edges) in zip(axes.flat, panels):
+    plot_directed_graph(axis, names, edges, title, stored_positions)
+for axis in axes.flat[len(panels) :]:
+    axis.axis("off")
+figure.suptitle(f"{DATASET_KEY}: {plot_dataset_id}", fontsize=12)
+figure.tight_layout()
+
+figure_dir = (
+    PROJECT_ROOT
+    / "data"
+    / "outputs"
+    / "causal-comparison"
+    / DATASET_KEY
+    / "graphs"
+)
+figure_dir.mkdir(parents=True, exist_ok=True)
+pdf_path = figure_dir / f"{plot_dataset_id}-inferred-graphs.pdf"
+png_path = figure_dir / f"{plot_dataset_id}-inferred-graphs.png"
+figure.savefig(pdf_path, bbox_inches="tight")
+figure.savefig(png_path, dpi=300, bbox_inches="tight")
+plt.show()
+print(pdf_path)
+print(png_path)
+'''
+    introduction = f'''
+# Collect and visualize {dataset.label} results
+
+Run this notebook after any or all method notebooks in this directory. It
+validates dataset and native-output hashes, converts every completed output to
+the shared source-to-target orientation, and exports the inferred cross-variable
+edges. Missing and failed fits remain visible in a separate status table.
+
+This is an empirical case study and does not require graph-recovery scores.
+The main output is a set of directly comparable directed
+graph panels. If the dataset supplies a physical or constructed reference
+network, that network appears in a separately labelled contextual panel and is
+not assumed to be an exhaustive lag-resolved causal truth.
+'''
+    return _notebook(
+        [
+            _markdown(introduction),
+            _code(EMPIRICAL_VISUALIZATION_IMPORTS),
+            _code(settings),
+            _code(plotting),
+        ]
+    )
+
+
 def synchronize() -> list[Path]:
     """Write all dataset-first notebooks deterministically."""
 
     updated: list[Path] = []
     for dataset in DATASETS:
-        dataset_root = NOTEBOOK_ROOT / dataset.key
+        dataset_root = NOTEBOOK_ROOT.joinpath(*dataset.notebook_subdir)
         dataset_root.mkdir(parents=True, exist_ok=True)
+        terminal_notebook = (
+            {"90-collect-and-score.ipynb": _scoring_notebook(dataset)}
+            if dataset.evaluation == "recovery"
+            else {
+                "90-collect-and-visualize.ipynb": _visualization_notebook(dataset)
+            }
+        )
         notebooks = {
             "00-prepare-data.ipynb": _prepare_notebook(dataset),
             **{
                 method.filename: _method_notebook(dataset, method)
                 for method in METHODS
             },
-            "90-collect-and-score.ipynb": _scoring_notebook(dataset),
+            **terminal_notebook,
         }
         for filename, notebook in notebooks.items():
             path = dataset_root / filename

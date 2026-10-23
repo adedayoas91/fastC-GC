@@ -13,6 +13,7 @@ import argparse
 import csv
 import importlib.metadata as importlib_metadata
 import json
+import os
 from pathlib import Path
 import platform
 import subprocess
@@ -138,12 +139,11 @@ def _save_dataset_bundle(
     dataset_dir = output_dir / "datasets"
     dataset_dir.mkdir(parents=True, exist_ok=True)
     data_path = dataset_dir / f"{dataset_id}.npz"
-    np.savez_compressed(
-        data_path,
-        series=np.asarray(dataset.series, dtype=float),
-        coefficients=np.asarray(dataset.coefficients, dtype=float),
-        lag_truth=np.asarray(dataset.lag_truth, dtype=bool),
-    )
+    arrays = {
+        "series": np.asarray(dataset.series, dtype=float),
+        "coefficients": np.asarray(dataset.coefficients, dtype=float),
+        "lag_truth": np.asarray(dataset.lag_truth, dtype=bool),
+    }
     metadata = {
         "dataset_id": dataset_id,
         "data_digest": dataset.digest,
@@ -158,9 +158,44 @@ def _save_dataset_bundle(
             "native raw output and command before conversion."
         ),
     }
-    data_path.with_suffix(".json").write_text(
-        json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8"
-    )
+    metadata_path = data_path.with_suffix(".json")
+    if data_path.exists() or metadata_path.exists():
+        if not data_path.is_file() or not metadata_path.is_file():
+            raise FileNotFoundError(f"Incomplete dataset bundle at {data_path}.")
+        with np.load(data_path, allow_pickle=False) as stored:
+            saved = {name: np.asarray(stored[name]) for name in stored.files}
+        recorded = json.loads(metadata_path.read_text(encoding="utf-8"))
+        arrays_match = set(saved) == set(arrays) and all(
+            np.array_equal(saved[name], value)
+            for name, value in arrays.items()
+        )
+        if not arrays_match or recorded != metadata:
+            raise ValueError(
+                f"Existing dataset bundle does not match request: {data_path}."
+            )
+        return data_path
+
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=dataset_dir,
+        prefix=f".{data_path.name}.",
+        delete=False,
+    ) as handle:
+        np.savez_compressed(handle, **arrays)
+        temporary_data = Path(handle.name)
+    os.replace(temporary_data, data_path)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=dataset_dir,
+        prefix=f".{metadata_path.name}.",
+        delete=False,
+    ) as handle:
+        json.dump(metadata, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        temporary_metadata = Path(handle.name)
+    os.replace(temporary_metadata, metadata_path)
     return data_path
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from fastCGC.experiments.comparison_scoring import (
+    collect_dataset_graphs,
     normalize_native_output,
     score_dataset_outputs,
 )
@@ -137,6 +138,7 @@ def _write_fastcgc_fixture(
     *,
     seed: int,
     selected_edge: bool,
+    regime: str = "reference",
 ) -> None:
     dataset_key = "sparseVAR"
     dataset_id = f"var3-t20-p1-gaussian-seed{seed}"
@@ -168,6 +170,7 @@ def _write_fastcgc_fixture(
                 "data_digest": digest,
                 "seed": seed,
                 "noise": "gaussian",
+                "regime": regime,
                 "series_layout": "variable, time",
                 "truth_layout": "lag, source, target",
             }
@@ -246,6 +249,7 @@ def test_dataset_scoring_writes_run_rows_and_mean_standard_deviation(
     assert exact["f1_mean"] == 0.5
     assert np.isclose(exact["f1_std"], np.sqrt(0.5))
     assert exact["f1_mean_std"] == "0.5000 (0.7071)"
+    assert exact["regime"] == "reference"
 
     missing = result.summary[
         (result.summary["method"] == "cuts-plus")
@@ -257,3 +261,149 @@ def test_dataset_scoring_writes_run_rows_and_mean_standard_deviation(
     assert missing["completed"] == 0
     assert missing["failed"] == 0
     assert missing["failure_aware_f1_n"] == 0
+
+
+def test_dataset_scoring_keeps_simulation_regimes_separate(tmp_path) -> None:
+    _write_fastcgc_fixture(
+        tmp_path,
+        seed=20,
+        selected_edge=True,
+        regime="reference",
+    )
+    _write_fastcgc_fixture(
+        tmp_path,
+        seed=21,
+        selected_edge=True,
+        regime="autocorrelation-0.95",
+    )
+
+    result = score_dataset_outputs(
+        tmp_path,
+        "sparseVAR",
+        methods=("fast-cgc",),
+    )
+    exact = result.summary[result.summary["estimand"] == "exact-lag"]
+
+    assert set(exact["regime"]) == {
+        "reference",
+        "autocorrelation-0.95",
+    }
+    assert set(exact["expected"]) == {1}
+
+
+def _write_empirical_fixture(
+    project_root: Path,
+    *,
+    include_reference: bool,
+) -> None:
+    dataset_key = "measurements"
+    dataset_id = "measured-system-1"
+    dataset_dir = (
+        project_root
+        / "data"
+        / "shared"
+        / "causal-comparison"
+        / dataset_key
+        / "datasets"
+    )
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    series = np.arange(60, dtype=float).reshape(3, 20)
+    digest = __import__("hashlib").sha256(
+        np.ascontiguousarray(series, dtype=np.float64).tobytes()
+    ).hexdigest()
+    arrays = {"series": series}
+    if include_reference:
+        reference = np.zeros((3, 3), dtype=bool)
+        reference[2, 1] = True
+        arrays["reference_graph"] = reference
+    np.savez_compressed(dataset_dir / f"{dataset_id}.npz", **arrays)
+    (dataset_dir / f"{dataset_id}.json").write_text(
+        json.dumps(
+            {
+                "dataset_id": dataset_id,
+                "data_digest": digest,
+                "fit_order": 1,
+                "regime": "measured",
+                "variable_names": ["upstream", "middle", "downstream"],
+                "series_layout": "variable, time",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_dir = (
+        project_root
+        / "data"
+        / "outputs"
+        / "causal-comparison"
+        / dataset_key
+        / "fast-cgc"
+    )
+    adjacency = np.zeros((1, 3, 3), dtype=bool)
+    adjacency[0, 0, 1] = True
+    scores = np.zeros((1, 3, 3), dtype=float)
+    scores[0, 0, 1] = 0.75
+    native_path = output_dir / "native" / f"{dataset_id}.npz"
+    native_digest = write_npz_checkpoint(
+        native_path,
+        {"lag_adjacency": adjacency, "lag_scores": scores},
+    )
+    write_checkpoint(
+        output_dir / "checkpoints" / f"{dataset_id}.json",
+        {
+            "method": "fast-cgc",
+            "dataset": dataset_key,
+            "dataset_id": dataset_id,
+            "dataset_digest": digest,
+            "fit_order": 1,
+            "status": "ok",
+            "algorithm_seed": 42,
+            "upstream_commit": "local-source:test",
+            "native_output": str(native_path.relative_to(project_root)),
+            "native_output_sha256": native_digest,
+            "error": "",
+        },
+    )
+
+
+def test_empirical_collector_needs_no_ground_truth(tmp_path) -> None:
+    _write_empirical_fixture(tmp_path, include_reference=False)
+
+    result = collect_dataset_graphs(
+        tmp_path,
+        "measurements",
+        methods=("fast-cgc", "cuts-plus"),
+    )
+
+    assert result.edge_table_path.is_file()
+    assert result.status_table_path.is_file()
+    assert result.reference_edges_path.is_file()
+    assert set(result.status_table["status"]) == {"ok", "missing"}
+    edge = result.edge_table.iloc[0]
+    assert edge["method"] == "fast-cgc"
+    assert edge["source"] == "upstream"
+    assert edge["target"] == "middle"
+    assert edge["score"] == 0.75
+    assert result.reference_edges.empty
+    assert not {
+        "auroc",
+        "auprc",
+        "f1",
+        "precision",
+        "recall",
+    }.intersection(result.edge_table.columns)
+
+
+def test_empirical_collector_exports_reference_network_separately(tmp_path) -> None:
+    _write_empirical_fixture(tmp_path, include_reference=True)
+
+    result = collect_dataset_graphs(
+        tmp_path,
+        "measurements",
+        methods=("fast-cgc",),
+    )
+
+    reference = result.reference_edges.iloc[0]
+    assert reference["source"] == "downstream"
+    assert reference["target"] == "middle"
+    assert "method" not in result.reference_edges.columns

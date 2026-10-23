@@ -7,12 +7,18 @@ experiment drivers and notebook generators remain in `experiments/`.
 ## Dataset-first comparison layout
 
 ```text
-sparseVAR/
-lorenz96/
-dream3/
+simulations/
+├── sparseVAR/
+├── lorenz96/
+├── autocorrelatedSCM/
+└── dream3/
+empirical/
+├── causalChamber/
+└── causalRivers/
 ```
 
-Each dataset directory contains the same notebook matrix:
+Every directory contains the same preparation notebook and seven method
+notebooks:
 
 ```text
 00-prepare-data.ipynb
@@ -23,17 +29,21 @@ c-GC-star.ipynb
 PCMCI-plus.ipynb
 Bagged-PCMCI-plus.ipynb
 CUTS-plus.ipynb
-90-collect-and-score.ipynb
 ```
+
+Simulation and in-silico directories end with
+`90-collect-and-score.ipynb`. Empirical directories end with
+`90-collect-and-visualize.ipynb`.
 
 Run `00-prepare-data.ipynb` first. It creates or validates the immutable dataset
 bundles used by every method notebook in that directory. The method notebooks
-save native outputs before common graph conversion and scoring. Conventional
+save native outputs before common graph conversion. Conventional
 c-GC/c-GC*, PCMCI+, Bagged PCMCI+, and CUTS+ are loaded from pinned authors'
 checkouts under the ignored `external/` directory; their estimators are not
 copied into this repository.
 
-Run `90-collect-and-score.ipynb` after the method notebooks. It validates the
+For simulations and DREAM3, run `90-collect-and-score.ipynb` after the method
+notebooks. It validates the
 saved dataset and native-output hashes, records missing or failed fits, and
 writes `run_metrics.csv` plus `summary_mean_std.csv` under
 `data/outputs/causal-comparison/<dataset>/scores/`. Summary rows report the
@@ -41,7 +51,17 @@ mean and sample standard deviation across dataset instances in the same
 experimental cell. Exact-lag and aggregate-any-lag results remain separate;
 methods with aggregate-only native outputs are not assigned synthetic lags.
 
-The DREAM3 source files are not distributed by the CUTS+ repository. Its data
+For Causal Chambers and CausalRivers, run
+`90-collect-and-visualize.ipynb`. It exports every inferred cross-variable edge,
+keeps missing and failed fits visible, and draws the methods' directed graphs
+with a common node layout. These empirical case studies do not require
+graph-recovery metrics. A supplied physical or constructed network is shown in
+a separately labelled reference panel rather than assumed to be an exhaustive
+lag-resolved causal truth.
+
+The DREAM3 Size 100 networks are in-silico GeneNetWeaver benchmarks, not
+real-world measurements. Their source files are not distributed by the CUTS+
+repository. The data
 preparation notebook therefore validates a user-supplied, licensed copy rather
 than downloading data from an unverified mirror.
 
@@ -49,14 +69,41 @@ The comparison notebooks expect these verified checkouts by default:
 
 - `external/causalized-GC` at `575ac1dc67a0282a5ca88bc11a2804df052f674d`;
 - `external/tigramite` at `ff3ff13e1481073b8c5833a6fde1c304627a208e`;
-- `external/UNN` at `2212724cce8a7752db564089a7537fecedb0e36d`.
+- `external/UNN` at `2212724cce8a7752db564089a7537fecedb0e36d`;
+- `external/debeire24clear_Bagged_TimeSeries_Causality` at
+  `8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9` for the autocorrelated-SCM
+  generator used by Debeire et al. (2024);
+- `external/causal-chamber-package` at
+  `9fb5d82e391bb91a89a64f2e1c9b6ae8e7aed6d6` for the wind-tunnel reference
+  network;
+- `external/causalrivers` at
+  `a30154fbb9a2e03bae133c643d7e978df63b3766` for the authors' connected-subgraph
+  sampler.
 
 Override their locations with `CAUSALIZED_GC_ROOT`, `TIGRAMITE_ROOT`, and
-`UNN_ROOT`, respectively. The checkouts themselves remain ignored by Git.
+`UNN_ROOT`. Set `BAGGED_PCMCI_DATA_ROOT`,
+`CAUSAL_CHAMBER_PACKAGE_ROOT`, or `CAUSAL_RIVERS_ROOT` for the other checkouts.
+The preparation notebooks download the official measurement archives into the
+ignored `external/datasets/` directory and verify their recorded SHA-256
+digests. Existing downloads can be selected with `CAUSAL_CHAMBER_ARCHIVE` and
+`CAUSAL_RIVERS_ARCHIVE`.
 
-The earlier scenario notebooks remain under `simulations/`. They cover the
-original single-lag/variable-lag and dependence-profile studies and are not the
-cross-method comparison matrix.
+The CausalRivers preparation notebook imports `networkx` and the subgraph
+sampler from the pinned CausalRivers checkout. Run that notebook in an
+environment containing the official repository's data dependencies; `networkx`
+is not added as a dependency of the fastC-GC estimator package.
+
+The simulation tree is organized by data-generating process, not by dependence
+profile. The preparation notebook describes the process and records its
+parameters. Identity and curved link functions, when present, are analysis
+factors within that process rather than separate directory classes.
+
+The autocorrelated-SCM notebooks use the authors' generator from
+[Debeire et al. (2024)](https://proceedings.mlr.press/v236/debeire24a.html).
+The common comparison arm sets the generator's contemporaneous-link fraction
+to zero so all seven methods are scored on the same positive-lag graph. This
+adaptation is stated in the notebook and stored in each dataset's metadata. A
+cross-link-free cell is included to measure false positives directly.
 
 All notebooks use deterministic, hash-verified dataset bundles. Successful
 fits are checkpointed, so a stopped run can continue without repeating
@@ -66,8 +113,6 @@ Regenerate the committed notebooks after changing their shared templates:
 
 ```bash
 uv run --extra dev python experiments/benchmarks/sync_comparison_notebooks.py
-uv run --extra dev python experiments/benchmarks/sync_conventional_cgc_notebooks.py
-uv run --extra dev python experiments/benchmarks/sync_nonlinear_notebooks.py
 ```
 
 Notebook outputs are intentionally cleared before commit. Experimental data,

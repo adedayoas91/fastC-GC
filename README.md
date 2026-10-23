@@ -35,16 +35,23 @@ Cross-method experiment notebooks use a dataset-first layout under
 
 ```text
 notebooks/
-├── sparseVAR/
-├── lorenz96/
-└── dream3/
+├── simulations/
+│   ├── sparseVAR/
+│   ├── lorenz96/
+│   ├── autocorrelatedSCM/
+│   └── dream3/
+└── empirical/
+    ├── causalChamber/
+    └── causalRivers/
 ```
 
 Each dataset directory contains one shared-data preparation notebook and one
 notebook for each of fastC-GC, fastC-GC*, conventional c-GC/c-GC*, PCMCI+,
-Bagged PCMCI+, and CUTS+. The earlier focused scenario studies remain under
-`notebooks/simulations/`. See `notebooks/README.md` for the full matrix,
-dataset-sharing, regeneration, and pause/resume conventions.
+Bagged PCMCI+, and CUTS+. Simulation directories are named for their
+data-generating processes; link functions and noise families are recorded as
+experimental factors instead of being split into linear and nonlinear trees.
+See `notebooks/README.md` for the full matrix, dataset-sharing, regeneration,
+and pause/resume conventions.
 
 ```python
 from fastCGC import FastGcStar
@@ -116,9 +123,10 @@ uv run python experiments/simulations/nonlinear/benchmark_dependence_backends.py
 
 ## Cross-method causal-structure comparison
 
-The prespecified method list, graph convention, data regimes, AUROC/AUPRC and
-structural metrics, statistical comparisons, and failure policy are documented
-in `experiments/benchmarks/CAUSAL_COMPARISON_PROTOCOL.md`.
+The prespecified method list, graph convention, controlled recovery metrics,
+empirical graph-visualization protocol, statistical comparisons, and failure
+policy are documented in
+`experiments/benchmarks/CAUSAL_COMPARISON_PROTOCOL.md`.
 
 The recent-literature shortlist uses PCMCI+, Bagged PCMCI+, and CUTS+ as the
 headline external CSL comparators. CUTS+ is evaluated on aggregate any-lag
@@ -156,11 +164,28 @@ git -C external/tigramite checkout ff3ff13e1481073b8c5833a6fde1c304627a208e
 
 git clone https://github.com/jarrycyx/UNN.git external/UNN
 git -C external/UNN checkout 2212724cce8a7752db564089a7537fecedb0e36d
+
+git clone \
+  https://github.com/EyringMLClimateGroup/debeire24clear_Bagged_TimeSeries_Causality.git \
+  external/debeire24clear_Bagged_TimeSeries_Causality
+git -C external/debeire24clear_Bagged_TimeSeries_Causality checkout \
+  8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9
+
+git clone \
+  https://github.com/juangamella/causal-chamber-package.git \
+  external/causal-chamber-package
+git -C external/causal-chamber-package checkout \
+  9fb5d82e391bb91a89a64f2e1c9b6ae8e7aed6d6
+
+git clone https://github.com/CausalRivers/causalrivers.git external/causalrivers
+git -C external/causalrivers checkout \
+  a30154fbb9a2e03bae133c643d7e978df63b3766
 ```
 
-Set `TIGRAMITE_ROOT` or `UNN_ROOT` when either checkout is stored elsewhere.
-Each notebook verifies the remote URL and exact commit before importing the
-native entry point.
+Set `TIGRAMITE_ROOT`, `UNN_ROOT`, `BAGGED_PCMCI_DATA_ROOT`,
+`CAUSAL_CHAMBER_PACKAGE_ROOT`, or `CAUSAL_RIVERS_ROOT` when a checkout is stored
+elsewhere. Each notebook verifies the remote URL and exact commit before
+importing a native entry point, data generator, reference graph, or sampler.
 
 The notebook loader verifies both the remote URL and the recorded commit before
 importing `GcStar`. The upstream estimator remains unchanged.
@@ -189,35 +214,41 @@ repository policy is in the comparison protocol.
 For the dataset-first notebooks, `00-prepare-data.ipynb` writes the frozen
 bundles under `data/shared/causal-comparison/<dataset>/datasets/`. Each method
 notebook reads those exact files and checkpoints one completed dataset fit at a
-time. Run `90-collect-and-score.ipynb` in the same dataset directory to create
-hash-verified run-level metrics and mean (sample SD) summaries with explicit
-missing/failure counts. Regenerate the notebook matrix with:
+time. For simulation and in-silico datasets,
+`90-collect-and-score.ipynb` creates hash-verified run-level metrics and mean
+(sample SD) summaries with explicit missing/failure counts. For the two
+empirical datasets, `90-collect-and-visualize.ipynb` exports edge lists and
+directed graph panels without requiring recovery metrics. Regenerate the
+notebook matrix with:
 
 ```bash
 uv run --extra dev python experiments/benchmarks/sync_comparison_notebooks.py
 ```
 
-The eight conventional c-GC/c-GC* simulation notebooks under
-`notebooks/simulations/linear/` follow the same rule on their scenario
-suite. They create each dataset once under
-`data/shared/causal-comparison-notebooks/linear-large/`, record the effective
-data seed and SHA-256 digest, and reuse that exact bundle across both methods.
-Each completed `(scenario, trial, n_past)` fit has an atomic checkpoint and an unmodified
-native-output archive. Set `MAX_NEW_FITS` in a notebook for a bounded session,
-or interrupt the current fit and rerun the cell; completed matching checkpoints
-are skipped. The upstream estimator has no mid-fit checkpoint interface, so an
-interrupted fit itself must restart. Python and package versions are part of the
-software fingerprint. Moving a run between computers does not invalidate a
-checkpoint when the dataset, method settings, source revision, and software
-fingerprint still match.
+Every simulation DGP has the same seven method notebooks. Each completed
+dataset fit has an atomic checkpoint and an unmodified native-output archive.
+Set `MAX_NEW_FITS` in a method notebook for a bounded session, or interrupt the
+current fit and rerun the cell; completed matching checkpoints are skipped. The
+upstream estimators have no common mid-fit checkpoint interface, so an
+interrupted fit itself must restart.
+
+DREAM3 is grouped with the simulations because its Size 100 networks and time
+series are generated in silico. The two measured-data case studies are Causal
+Chambers wind-tunnel recordings and CausalRivers discharge recordings. Their
+published physical or constructed networks are retained as contextual graph
+panels. The empirical collector does not treat those references as mandatory,
+exhaustive lag-resolved truth and can also visualize datasets that provide no
+reference graph.
 
 The notebooks set and record an algorithm seed, but the upstream estimator uses
 NumPy randomness inside concurrent Numba code and exposes no random-state
 argument. Input datasets are therefore guaranteed identical by hash; estimator
 repeatability must be checked empirically before it is claimed.
 
-The two nonlinear notebooks are explicitly labeled as local fastC-GC and
-fastC-GC* dependence-profile experiments, not as executions of conventional
-c-GC. They use the same bundle and checkpoint contract in the separate
-`nonlinear-small` suite so their smaller data regime cannot collide with the
-linear comparison datasets.
+The autocorrelated-SCM study calls the official generator used by Debeire et
+al. (2024) from its pinned repository. Its reference cell and one-factor stress
+cells vary sample count, variable count, autocorrelation, link functions, and
+innovation families; a cross-link-free cell measures false positives. The
+matched comparison disables contemporaneous links and records this departure
+from the source study, because the seven methods do not share a common
+contemporaneous graph output.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import tomllib
 
@@ -25,8 +24,6 @@ from fastCGC.experiments.upstream import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SIMULATION_NOTEBOOK_ROOT = PROJECT_ROOT / "notebooks" / "simulations"
-NOTEBOOK_ROOT = SIMULATION_NOTEBOOK_ROOT / "linear"
 
 
 def _record(status: str = "ok") -> dict[str, object]:
@@ -106,72 +103,6 @@ def test_hashes_and_algorithm_seeds_are_stable() -> None:
     assert derive_algorithm_seed(42, "cgc", 0, 1) != derive_algorithm_seed(
         42, "cgc", 0, 2
     )
-
-
-def test_conventional_notebooks_use_only_the_pinned_upstream_estimator() -> None:
-    paths = sorted((NOTEBOOK_ROOT / "c-GC").glob("*.ipynb"))
-    paths += sorted((NOTEBOOK_ROOT / "c-GC-star").glob("*.ipynb"))
-    assert len(paths) == 8
-
-    for path in paths:
-        notebook = json.loads(path.read_text(encoding="utf-8"))
-        source = "\n".join(
-            "".join(cell.get("source", []))
-            for cell in notebook["cells"]
-        )
-        assert "FastGcStar as GcStar" not in source
-        assert "load_conventional_cgc" in source
-        assert "load_or_generate_trial_data" in source
-        assert "reusable_success" in source
-        assert CAUSALIZED_GC_URL.removesuffix(".git") in source
-        for index, cell in enumerate(notebook["cells"]):
-            if cell["cell_type"] == "code":
-                assert cell["execution_count"] is None
-                assert cell["outputs"] == []
-                compile(
-                    "".join(cell["source"]),
-                    f"{path.name}:cell-{index}",
-                    "exec",
-                )
-
-
-def test_all_simulation_notebooks_share_data_and_resume_contract() -> None:
-    paths = sorted(SIMULATION_NOTEBOOK_ROOT.glob("**/*.ipynb"))
-    assert len(paths) == 10
-
-    for path in paths:
-        notebook = json.loads(path.read_text(encoding="utf-8"))
-        source = "\n".join(
-            "".join(cell.get("source", []))
-            for cell in notebook["cells"]
-        )
-        assert "load_or_generate_trial_data" in source
-        assert "dataset_digest" in source
-        assert "reusable_success" in source
-        assert "MAX_NEW_FITS" in source
-        assert 'EXPECTED_PYTHON = (3, 14)' in source
-        assert '"software_fingerprint": SOFTWARE_FINGERPRINT' in source
-        assert "fit_seconds" not in source
-        assert "runtime_fingerprint" not in source
-        assert "runtime_provenance" not in source
-        assert "EXPECTED_MACHINE" not in source
-        assert "THREAD_LIMITS" not in source
-        assert "timing.png" not in source
-        assert notebook["metadata"]["kernelspec"] == {
-            "display_name": "fastcgc (Python 3.14, Apple Silicon)",
-            "language": "python",
-            "name": "fastcgc-py314-arm64",
-        }
-        assert notebook["metadata"]["language_info"]["version"] == "3.14"
-        for index, cell in enumerate(notebook["cells"]):
-            if cell["cell_type"] == "code":
-                assert cell["execution_count"] is None
-                assert cell["outputs"] == []
-                compile(
-                    "".join(cell["source"]),
-                    f"{path.name}:cell-{index}",
-                    "exec",
-                )
 
 
 def test_notebook_loader_pins_upstream_revision() -> None:

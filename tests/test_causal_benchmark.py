@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from fastCGC.experiments.causal_benchmark import (
     aggregate_lags,
@@ -122,6 +123,17 @@ def test_exported_dataset_bundle_preserves_arrays_and_conventions(tmp_path) -> N
     assert metadata["data_digest"] == dataset.digest
     assert metadata["series_layout"] == "variable, time"
     assert metadata["truth_layout"] == "lag, source, target"
+
+    assert module._save_dataset_bundle(tmp_path, "example", dataset) == path
+
+    conflicting = simulate_sparse_var(
+        n_variables=3,
+        n_samples=50,
+        order=2,
+        seed=14,
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        module._save_dataset_bundle(tmp_path, "example", conflicting)
 
 
 def test_sparse_var_is_reproducible_stable_and_lag_resolved() -> None:

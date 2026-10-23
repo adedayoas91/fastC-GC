@@ -125,17 +125,27 @@ uv run python experiments/simulations/nonlinear/benchmark_dependence_backends.py
 Install the comparison dependencies into `fastC-GC/.venv` with:
 
 ```bash
-uv sync --extra dev --extra comparison --extra conventional-cgc
+uv sync --extra dev --extra notebooks --extra comparison --extra conventional-cgc
 ```
 
-This installs the pinned `tigramite==5.2.10.1` distribution used by PCMCI+ and
-Bagged PCMCI+, plus `causalchamber==0.2.8` for the Causal Chambers reference
-graph. It also installs conventional c-GC/c-GC* directly from commit
+The `notebooks` extra installs the complete IPython kernel environment,
+including Matplotlib's Jupyter backend and IPython's traceback dependencies.
+The remaining extras install the pinned `tigramite==5.2.10.1` distribution used
+by PCMCI+ and Bagged PCMCI+, plus `causalchamber==0.2.8` for the Causal Chambers
+reference graph. They also install conventional c-GC/c-GC* directly from commit
 `575ac1dc67a0282a5ca88bc11a2804df052f674d` of the authors' Git repository and
-supplies the runtime dependencies omitted from that repository's package
+supply the runtime dependencies omitted from that repository's package
 metadata. The notebooks verify package versions and Git provenance from the
 active kernel environment. The conventional c-GC extra targets the planned
 Apple Silicon machine, where Numba publishes a CPython 3.14 wheel.
+
+Register the synchronized environment once, then select this kernel in Jupyter
+or VS Code and restart it after dependency changes:
+
+```bash
+.venv/bin/python -m ipykernel install --user --name fastcgc-py314-arm64 \
+  --display-name "fastcgc (Python 3.14, Apple Silicon)"
+```
 
 ## Cross-method causal-structure comparison
 

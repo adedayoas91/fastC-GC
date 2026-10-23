@@ -145,6 +145,16 @@ def test_comparison_extra_pins_installable_upstream_packages() -> None:
     }
 
 
+def test_notebook_extra_provides_the_jupyter_kernel() -> None:
+    project = tomllib.loads(
+        (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert set(project["project"]["optional-dependencies"]["notebooks"]) == {
+        "ipykernel==7.4.0",
+    }
+
+
 def test_installed_distribution_revision_is_versioned() -> None:
     assert verify_installed_distribution(
         "pytest",

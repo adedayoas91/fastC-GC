@@ -26,6 +26,9 @@ conventional-cgc = [
 dev = [
     "pytest>=8.4",
 ]
+notebooks = [
+    "ipykernel==7.4.0",
+]
 
 [build-system]
 requires = ["setuptools>=77"]

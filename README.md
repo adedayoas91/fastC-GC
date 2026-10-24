@@ -191,6 +191,15 @@ these checkouts is stored elsewhere. Each repository-backed notebook verifies
 the remote URL and exact commit before importing a native entry point, data
 generator, or sampler.
 
+The DREAM3 preparation notebook downloads the exact Size 100 tensors and
+network files from commit `7fe4b24880a947056d7753cf51f69d5e4f0ee5fb` of the
+original SRU_for_GCI authors' repository and verifies every SHA-256 digest; no
+separate DREAM3 checkout is required. For CUTS+ datasets with fewer than the
+32 groups in its upstream Lorenz configuration, the notebook sets the initial
+group count to the number of variables. This preserves the upstream estimator
+while satisfying its requirement that the initial group count not exceed the
+dataset width.
+
 The conventional notebook loader verifies the installed distribution's PEP 610
 Git URL and commit before importing `GcStar`. The upstream estimator remains
 unchanged.

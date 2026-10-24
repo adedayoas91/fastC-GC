@@ -21,6 +21,42 @@ NOTEBOOK_ROOT = PROJECT_ROOT / "notebooks"
 TIGRAMITE_VERSION = "5.2.10.1"
 UNN_URL = "https://github.com/jarrycyx/UNN.git"
 UNN_COMMIT = "2212724cce8a7752db564089a7537fecedb0e36d"
+DREAM3_DATA_URL = (
+    "https://raw.githubusercontent.com/sakhanna/SRU_for_GCI"
+)
+DREAM3_DATA_COMMIT = "7fe4b24880a947056d7753cf51f69d5e4f0ee5fb"
+DREAM3_DATA_FILES = {
+    "Dream3TensorData/Size100Ecoli1.pt": (
+        "c312c1a4d2570bfb0fbeae075868de9547f50efd70c2903697009586c5b70c97"
+    ),
+    "Dream3TensorData/Size100Ecoli2.pt": (
+        "77d7cf39a0e78396f73922f3345b1650d99cd1445173c4bb87a2c86ee41e04a5"
+    ),
+    "Dream3TensorData/Size100Yeast1.pt": (
+        "94844418b42c262ca9f378e673f124ec982cd0b635260c200f56f886091b9d3b"
+    ),
+    "Dream3TensorData/Size100Yeast2.pt": (
+        "29e81a6e98b6b190590eed911d7e13c8e68ada53eba668dca6cb5bec9973c9ec"
+    ),
+    "Dream3TensorData/Size100Yeast3.pt": (
+        "ba509214bb86fa1d4a8160f95b0d384182aab38afed7545d47aaee09bc73d36b"
+    ),
+    "TrueGeneNetworks/InSilicoSize100-Ecoli1.tsv": (
+        "a3ff157a8398f52a13dd26af8407817ec81c0ac8d4582ccb38534e384f68cd73"
+    ),
+    "TrueGeneNetworks/InSilicoSize100-Ecoli2.tsv": (
+        "f5448add4389180a105e2e75f730278cf2d946b6948823091569f386fe97fde1"
+    ),
+    "TrueGeneNetworks/InSilicoSize100-Yeast1.tsv": (
+        "00cebe38ad7a596c605dcc8db021f1b23e3ac309bc4f42775ef2490515212712"
+    ),
+    "TrueGeneNetworks/InSilicoSize100-Yeast2.tsv": (
+        "7320839722d86d161522f9343d80513a8ee94dda38ffad823b4e668ae467ccae"
+    ),
+    "TrueGeneNetworks/InSilicoSize100-Yeast3.tsv": (
+        "296e70fd0ee2aacb20b1079a8a070b0f633a421384b32f009011b75b0b75746d"
+    ),
+}
 BAGGED_PCMCI_DATA_URL = (
     "https://github.com/EyringMLClimateGroup/"
     "debeire24clear_Bagged_TimeSeries_Causality.git"
@@ -436,6 +472,8 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
     options = OmegaConf.load(CUTS_ROOT / "opt" / "lorenz_example.yaml")
     native_options = deepcopy(options.sota.cuts_plus)
     native_options.n_nodes = int(series.shape[0])
+    configured_groups = int(native_options.n_groups)
+    native_options.n_groups = min(configured_groups, native_options.n_nodes)
     reproduc(seed=algorithm_seed, benchmark=False, deterministic=True)
 
     if torch.backends.mps.is_available():
@@ -785,7 +823,7 @@ def download_verified(url, path, expected_sha256):
         observed = file_digest(path)
         if observed != expected_sha256:
             raise ValueError(
-                f"Archive digest mismatch for {path}: {observed}."
+                f"File digest mismatch for {path}: {observed}."
             )
         return False
 
@@ -803,7 +841,7 @@ def download_verified(url, path, expected_sha256):
         observed = file_digest(temporary)
         if observed != expected_sha256:
             raise ValueError(
-                f"Downloaded archive digest mismatch: {observed}."
+                f"Downloaded file digest mismatch: {observed}."
             )
         os.replace(temporary, path)
     finally:
@@ -1176,16 +1214,22 @@ if str(CUTS_ROOT) not in sys.path:
     sys.path.insert(0, str(CUTS_ROOT))
 from data.simu_data import load_dream_data
 
-# The UNN source references these files but does not distribute them. Place the
-# DREAM3 files under UNN_ROOT/causal_discov_sota/SRU_for_GCI/data/dream3/
-# before executing this cell.
+# CUTS+ delegates this loader to the SRU_for_GCI layout, but the pinned UNN
+# checkout does not contain those files. Fetch the exact preprocessed tensors
+# and reference networks used by that loader from the original authors' pinned
+# repository revision, verifying every file before use.
 DREAM_DATA_ROOT = (
     UNN_ROOT / "causal_discov_sota" / "SRU_for_GCI" / "data" / "dream3"
 )
-if not DREAM_DATA_ROOT.is_dir():
-    raise FileNotFoundError(
-        "DREAM3 source files are absent. Populate the path documented above; "
-        "the benchmark will not fabricate or download an unverified copy."
+DREAM3_FILES = {DREAM3_DATA_FILES!r}
+DREAM3_RAW_ROOT = (
+    "{DREAM3_DATA_URL}/{DREAM3_DATA_COMMIT}/data/dream3"
+)
+for relative_path, expected_sha256 in DREAM3_FILES.items():
+    download_verified(
+        f"{{DREAM3_RAW_ROOT}}/{{relative_path}}",
+        DREAM_DATA_ROOT / relative_path,
+        expected_sha256,
     )
 
 DATASET_IDS = tuple(range(5))
@@ -1210,6 +1254,11 @@ try:
                 "dataset": DATASET_KEY,
                 "loader": "UNN/CUTS_Plus/data/simu_data.py:load_dream_data",
                 "upstream_commit": UPSTREAM_REVISION.commit,
+                "data_source": (
+                    "https://github.com/sakhanna/SRU_for_GCI/tree/"
+                    "{DREAM3_DATA_COMMIT}/data/dream3"
+                ),
+                "data_source_commit": "{DREAM3_DATA_COMMIT}",
                 "dataset_index": dataset_id_number,
                 "fit_order": FIT_ORDER,
                 "regime": "dream3-size100",

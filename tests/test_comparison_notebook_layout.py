@@ -95,6 +95,20 @@ def test_repository_only_notebooks_call_pinned_author_checkouts() -> None:
             assert "verify_upstream_revision" in source
 
 
+def test_cuts_plus_caps_initial_groups_at_dataset_width() -> None:
+    for dataset_root in DATASET_ROOTS.values():
+        notebook = json.loads(
+            (dataset_root / "CUTS-plus.ipynb").read_text(encoding="utf-8")
+        )
+        source = _source(notebook)
+
+        assert "configured_groups = int(native_options.n_groups)" in source
+        assert (
+            "native_options.n_groups = min(configured_groups, "
+            "native_options.n_nodes)"
+        ) in source
+
+
 def test_conventional_cgc_notebooks_use_installed_git_distribution() -> None:
     for dataset_root in DATASET_ROOTS.values():
         for filename in ("c-GC.ipynb", "c-GC-star.ipynb"):
@@ -192,6 +206,22 @@ def test_autocorrelated_scm_uses_pinned_official_generator() -> None:
     assert "MAX_NEW_DATASETS: int | None = None" in source
     assert '"cross-link-null"' in source
     assert '"regime"' in source
+
+
+def test_dream3_preparation_downloads_pinned_author_data() -> None:
+    path = SIMULATION_ROOTS["dream3"] / "00-prepare-data.ipynb"
+    notebook = json.loads(path.read_text(encoding="utf-8"))
+    source = _source(notebook)
+
+    assert "sakhanna/SRU_for_GCI" in source
+    assert "7fe4b24880a947056d7753cf51f69d5e4f0ee5fb" in source
+    assert "download_verified" in source
+    assert "Size100Ecoli1.pt" in source
+    assert "Size100Yeast3.pt" in source
+    assert "InSilicoSize100-Ecoli1.tsv" in source
+    assert "InSilicoSize100-Yeast3.tsv" in source
+    assert "c312c1a4d2570bfb0fbeae075868de9547f50efd70c2903697009586c5b70c97" in source
+    assert "296e70fd0ee2aacb20b1079a8a070b0f633a421384b32f009011b75b0b75746d" in source
 
 
 def test_empirical_preparation_uses_verified_official_sources() -> None:

@@ -231,7 +231,17 @@ linear/nonlinear label.
 DREAM3 Size 100 supplies five in-silico gene-regulatory systems generated with
 GeneNetWeaver. The aggregate regulatory network is the recovery target. The
 data are grouped with the other generated processes, not with the measured-data
-case studies.
+case studies. The preparation notebook obtains the preprocessed tensors and
+network files from a pinned revision of the original SRU_for_GCI authors'
+repository and verifies every file digest before invoking the unchanged CUTS+
+loader.
+
+The upstream CUTS+ Lorenz configuration starts from 32 variable groups. When
+a shared dataset has fewer than 32 variables, the CUTS+ notebook uses the
+dataset width as the initial group count; otherwise the upstream value is
+retained. The cap is required by the upstream initialization logic, which does
+not create its graph parameter when the initial group count exceeds the number
+of variables. No CUTS+ estimator code is modified.
 
 ## Empirical case studies
 

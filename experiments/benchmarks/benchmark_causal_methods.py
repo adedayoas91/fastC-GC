@@ -215,6 +215,16 @@ def _save_worker_result(
             if result.lag_pvalues is not None
             else np.empty((0,), dtype=float)
         ),
+        lag_marginal_pvalues=(
+            np.asarray(result.lag_marginal_pvalues, dtype=float)
+            if result.lag_marginal_pvalues is not None
+            else np.empty((0,), dtype=float)
+        ),
+        lag_conditional_pvalues=(
+            np.asarray(result.lag_conditional_pvalues, dtype=float)
+            if result.lag_conditional_pvalues is not None
+            else np.empty((0,), dtype=float)
+        ),
     )
     metadata_path = path.with_suffix(".json")
     metadata_path.write_text(
@@ -310,6 +320,8 @@ def _edge_rows(
 ) -> Iterable[dict[str, Any]]:
     n_lags, n_variables, _ = truth.shape
     pvalues = result.lag_pvalues
+    marginal_pvalues = result.lag_marginal_pvalues
+    conditional_pvalues = result.lag_conditional_pvalues
     for lag in range(n_lags):
         for source in range(n_variables):
             for target in range(n_variables):
@@ -328,17 +340,43 @@ def _edge_rows(
                         if pvalues is None
                         else float(pvalues[lag, source, target])
                     ),
+                    "marginal_pvalue": (
+                        ""
+                        if marginal_pvalues is None
+                        else float(marginal_pvalues[lag, source, target])
+                    ),
+                    "conditional_pvalue": (
+                        ""
+                        if conditional_pvalues is None
+                        else float(conditional_pvalues[lag, source, target])
+                    ),
                 }
 
 
 def _load_worker_result(path: Path) -> tuple[MethodResult, dict[str, Any]]:
     with np.load(path, allow_pickle=False) as stored:
         pvalues = stored["lag_pvalues"]
+        marginal_pvalues = (
+            stored["lag_marginal_pvalues"]
+            if "lag_marginal_pvalues" in stored.files
+            else np.empty((0,), dtype=float)
+        )
+        conditional_pvalues = (
+            stored["lag_conditional_pvalues"]
+            if "lag_conditional_pvalues" in stored.files
+            else np.empty((0,), dtype=float)
+        )
         result = MethodResult(
             method=json.loads(path.with_suffix(".json").read_text())["method"],
             lag_adjacency=stored["lag_adjacency"],
             lag_scores=stored["lag_scores"],
             lag_pvalues=None if pvalues.size == 0 else pvalues,
+            lag_marginal_pvalues=(
+                None if marginal_pvalues.size == 0 else marginal_pvalues
+            ),
+            lag_conditional_pvalues=(
+                None if conditional_pvalues.size == 0 else conditional_pvalues
+            ),
         )
     metadata = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
     return result, metadata

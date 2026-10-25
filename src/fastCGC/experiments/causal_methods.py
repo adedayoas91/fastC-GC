@@ -18,6 +18,8 @@ class MethodResult:
     lag_adjacency: np.ndarray
     lag_scores: np.ndarray
     lag_pvalues: np.ndarray | None = None
+    lag_marginal_pvalues: np.ndarray | None = None
+    lag_conditional_pvalues: np.ndarray | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -33,6 +35,12 @@ class MethodResult:
             pvalues = np.asarray(self.lag_pvalues)
             if pvalues.shape != adjacency.shape:
                 raise ValueError("lag_pvalues must match lag_adjacency.")
+        for name, values in (
+            ("lag_marginal_pvalues", self.lag_marginal_pvalues),
+            ("lag_conditional_pvalues", self.lag_conditional_pvalues),
+        ):
+            if values is not None and np.asarray(values).shape != adjacency.shape:
+                raise ValueError(f"{name} must match lag_adjacency.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +203,12 @@ def _two_test_result(
         raise RuntimeError("c-GC output does not match the requested lag order.")
 
     lag_adjacency = selected.reshape(order + 1, n_variables, n_variables)[1:]
+    lag_marginal_pvalues = marginal_p.reshape(
+        order + 1, n_variables, n_variables
+    )[1:]
+    lag_conditional_pvalues = conditional_p.reshape(
+        order + 1, n_variables, n_variables
+    )[1:]
     lag_pvalues = joint_p.reshape(order + 1, n_variables, n_variables)[1:]
     # The conjunction is stronger when its larger component p-value is smaller.
     lag_scores = 1.0 - lag_pvalues
@@ -203,9 +217,13 @@ def _two_test_result(
         lag_adjacency=lag_adjacency,
         lag_scores=lag_scores,
         lag_pvalues=lag_pvalues,
+        lag_marginal_pvalues=lag_marginal_pvalues,
+        lag_conditional_pvalues=lag_conditional_pvalues,
         metadata={
             "alpha": alpha,
             "beta": beta,
+            "ridge": estimator.ridge,
+            "evaluation_policy": estimator.evaluation_policy,
             "score": "1 - max(marginal_p, conditional_p)",
         },
     )
@@ -219,6 +237,8 @@ def fit_fast_cgc(
     beta: float,
     seed: int,
     star: bool,
+    ridge: float = 1e-6,
+    evaluation_policy: str = "full",
     **_: Any,
 ) -> MethodResult:
     method_name = "fast-cgc-star" if star else "fast-cgc"
@@ -228,8 +248,9 @@ def fit_fast_cgc(
         method="fcgc" if star else "cgc",
         parallel=False,
         exact_permutation=True,
-        evaluation_policy="full",
+        evaluation_policy=evaluation_policy,
         dependence_profile="linear",
+        ridge=ridge,
         random_state=seed,
     )
     return _two_test_result(

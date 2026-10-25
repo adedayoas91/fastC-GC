@@ -300,6 +300,7 @@ RUN_CONFIGURATION = {{
     "n_permutations": N_PERMUTATIONS,
     "bootstrap_samples": BOOTSTRAP_SAMPLES,
     "truth_scope": "{dataset.truth}",
+    **({{"native_output_schema": 2}} if METHOD_KEY.startswith("fast-") else {{}}),
 }}
 CONFIG_HASH = configuration_hash(RUN_CONFIGURATION)
 print(f"Dataset directory: {{DATASET_DIR}}")
@@ -310,8 +311,12 @@ print(f"Output directory: {{OUTPUT_DIR}}")
 LOCAL_RUNNER = r'''
 from fastCGC.experiments.causal_methods import fit_method
 
-SOURCE_REVISION = "local-source:" + file_sha256(
-    PROJECT_ROOT / "src" / "fastCGC" / "core" / "fast_gc_star.py"
+SOURCE_REVISION = "local-source:" + ":".join(
+    file_sha256(path)
+    for path in (
+        PROJECT_ROOT / "src" / "fastCGC" / "core" / "fast_gc_star.py",
+        PROJECT_ROOT / "src" / "fastCGC" / "experiments" / "causal_methods.py",
+    )
 )
 
 
@@ -331,6 +336,13 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
     }
     if result.lag_pvalues is not None:
         arrays["lag_pvalues"] = result.lag_pvalues
+    if result.lag_marginal_pvalues is not None:
+        arrays["lag_marginal_pvalues"] = result.lag_marginal_pvalues
+    if result.lag_conditional_pvalues is not None:
+        arrays["lag_conditional_pvalues"] = result.lag_conditional_pvalues
+    arrays["alpha"] = np.asarray(ALPHA)
+    arrays["beta"] = np.asarray(BETA)
+    arrays["ridge"] = np.asarray(result.metadata["ridge"])
     return arrays
 '''
 
@@ -364,6 +376,8 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
         "pvalue_corr": estimator.pVal_corr_,
         "conditional_corr": estimator.inv_corr_,
         "pvalue_conditional": estimator.pVal_inv_corr_,
+        "alpha": np.asarray(ALPHA),
+        "beta": np.asarray(BETA),
     }
 '''
 
@@ -1704,6 +1718,14 @@ METHODS = (
     {method_keys},
 )
 
+# Leave both values as None to reproduce the archived decisions. After the
+# independent calibration arm is complete, set both values (for example,
+# DECISION_ALPHA = 0.01 and DECISION_BETA = 0.005) to write a separate
+# rethresholded score directory. New fast-method archives must contain both
+# component p-value arrays.
+DECISION_ALPHA: float | None = None
+DECISION_BETA: float | None = None
+
 # Collection is safe to rerun. It reads immutable bundles and completed native
 # outputs, records absent/failed fits explicitly, and atomically replaces only
 # the two derived score tables.
@@ -1711,6 +1733,8 @@ artifacts = score_dataset_outputs(
     PROJECT_ROOT,
     DATASET_KEY,
     methods=METHODS,
+    decision_alpha=DECISION_ALPHA,
+    decision_beta=DECISION_BETA,
 )
 run_metrics = artifacts.run_metrics
 summary = artifacts.summary

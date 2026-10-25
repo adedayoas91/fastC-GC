@@ -37,6 +37,8 @@ EXACT_LAG_METHODS = frozenset(
     {
         "fast-cgc",
         "fast-cgc-star",
+        "cgc",
+        "cgc-star",
         "pcmci-plus",
         "bagged-pcmci-plus",
     }
@@ -191,34 +193,124 @@ def _lagged_tigramite_output(
     ]
 
 
+def _bagged_directed_edge_frequency(
+    graph: Any,
+    modal_frequency: Any,
+    *,
+    fit_order: int,
+    n_variables: int,
+) -> np.ndarray:
+    """Recover positive-lag edge frequency from Tigramite's modal summary.
+
+    Tigramite reports the frequency of the most common graph mark.  When the
+    positive-lag alphabet is exactly no edge or ``-->``, the frequency of a
+    directed edge is the modal frequency for an edge mode and its complement
+    for a no-edge mode.  Other mark alphabets require the bootstrap graph stack
+    and cannot be reconstructed from the modal summary alone.
+    """
+
+    native_shape = (n_variables, n_variables, fit_order + 1)
+    graph_array = _require_shape(
+        graph,
+        native_shape,
+        name="most_frequent_links",
+    )
+    frequency = _require_shape(
+        modal_frequency,
+        native_shape,
+        name="link_frequency",
+    ).astype(float, copy=False)
+
+    positive_lag_graph = graph_array[:, :, 1 : fit_order + 1]
+    observed_marks = set(np.unique(positive_lag_graph).tolist())
+    unexpected = sorted(observed_marks - {"", "-->"})
+    if unexpected:
+        raise ValueError(
+            "Bagged PCMCI+ directed-edge frequency cannot be recovered "
+            f"from positive-lag marks {unexpected}; save boot_results['graph']."
+        )
+
+    positive_lag_frequency = frequency[:, :, 1 : fit_order + 1]
+    if (
+        not np.all(np.isfinite(positive_lag_frequency))
+        or np.any(positive_lag_frequency < 0.5)
+        or np.any(positive_lag_frequency > 1.0)
+    ):
+        raise ValueError(
+            "Bagged PCMCI+ link_frequency must be finite and between 0.5 and 1."
+        )
+
+    directed_frequency = np.zeros(native_shape, dtype=float)
+    directed_frequency[:, :, 1 : fit_order + 1] = np.where(
+        positive_lag_graph == "-->",
+        positive_lag_frequency,
+        1.0 - positive_lag_frequency,
+    )
+    return directed_frequency
+
+
 def normalize_native_output(
     method: str,
     native: Mapping[str, Any],
     *,
     fit_order: int,
     n_variables: int,
+    decision_alpha: float | None = None,
+    decision_beta: float | None = None,
 ) -> list[NormalizedOutput]:
     """Convert one saved native output without changing its estimand.
 
     Exact-lag rows are returned only for methods whose native result identifies
-    positive lags.  Conventional c-GC/c-GC* and CUTS+ remain aggregate-only; the
-    collector never invents a lag assignment for them.
+    positive lags. Conventional c-GC/c-GC* retain their lag-expanded p-value
+    arrays, whereas CUTS+ remains aggregate-only; the collector never invents
+    a lag assignment.
     """
 
     if method not in METHODS:
         raise ValueError(f"Unknown comparison method: {method!r}.")
     if fit_order < 1 or n_variables < 2:
         raise ValueError("fit_order must be positive and n_variables at least two.")
+    if (decision_alpha is None) != (decision_beta is None):
+        raise ValueError(
+            "decision_alpha and decision_beta must be supplied together."
+        )
+    if decision_alpha is not None and not (
+        0.0 < decision_alpha < 1.0 and 0.0 < decision_beta < 1.0
+    ):
+        raise ValueError("Decision thresholds must be probabilities in (0, 1).")
 
     lag_shape = (fit_order, n_variables, n_variables)
     aggregate_shape = (n_variables, n_variables)
 
     if method in {"fast-cgc", "fast-cgc-star"}:
-        selected = _require_shape(
-            native["lag_adjacency"],
-            lag_shape,
-            name="lag_adjacency",
-        ).astype(bool, copy=False)
+        if decision_alpha is None:
+            selected = _require_shape(
+                native["lag_adjacency"],
+                lag_shape,
+                name="lag_adjacency",
+            ).astype(bool, copy=False)
+        else:
+            if (
+                "lag_marginal_pvalues" not in native
+                or "lag_conditional_pvalues" not in native
+            ):
+                raise ValueError(
+                    "Threshold overrides require separately archived fast-method "
+                    "marginal and conditional p-values."
+                )
+            marginal = _require_shape(
+                native["lag_marginal_pvalues"],
+                lag_shape,
+                name="lag_marginal_pvalues",
+            ).astype(float, copy=False)
+            conditional = _require_shape(
+                native["lag_conditional_pvalues"],
+                lag_shape,
+                name="lag_conditional_pvalues",
+            ).astype(float, copy=False)
+            selected = (marginal <= decision_alpha) & (
+                conditional <= decision_beta
+            )
         scores = _require_shape(
             native["lag_scores"],
             lag_shape,
@@ -234,7 +326,7 @@ def normalize_native_output(
         ]
 
     if method in {"cgc", "cgc-star"}:
-        selected = _require_shape(
+        aggregate_selected = _require_shape(
             native["conn_mat"],
             aggregate_shape,
             name="conn_mat",
@@ -253,15 +345,44 @@ def normalize_native_output(
             native_pvalue_shape,
             name="pvalue_conditional",
         ).astype(float, copy=False)
-        combined_pvalues = np.maximum(
-            marginal_pvalues,
-            conditional_pvalues,
-        ).reshape(fit_order + 1, n_variables, n_variables)[1:]
+        marginal_lags = marginal_pvalues.reshape(
+            fit_order + 1,
+            n_variables,
+            n_variables,
+        )[1:]
+        conditional_lags = conditional_pvalues.reshape(
+            fit_order + 1,
+            n_variables,
+            n_variables,
+        )[1:]
+        native_alpha = float(np.asarray(native.get("alpha", 0.01)))
+        native_beta = float(np.asarray(native.get("beta", 0.001)))
+        alpha = native_alpha if decision_alpha is None else decision_alpha
+        beta = native_beta if decision_beta is None else decision_beta
+        if not (0.0 < alpha < 1.0 and 0.0 < beta < 1.0):
+            raise ValueError("c-GC alpha and beta must be scalar probabilities.")
+        exact_selected = (marginal_lags <= alpha) & (conditional_lags <= beta)
+        reconstructed_aggregate = aggregate_lags(exact_selected, binary=True)
+        if decision_alpha is None and not np.array_equal(
+            reconstructed_aggregate,
+            aggregate_selected,
+        ):
+            raise ValueError(
+                "The lag-resolved c-GC decisions do not reproduce conn_mat; "
+                "archive the alpha and beta values used by the upstream fit."
+            )
+        exact_scores = 1.0 - np.maximum(marginal_lags, conditional_lags)
         # Both tests must support an edge.  Thus 1 - max(p_marginal,
         # p_conditional) is a monotone conjunction score, with larger values
         # consistently denoting stronger edge evidence.
-        scores = aggregate_lags(1.0 - combined_pvalues, binary=False)
-        return [NormalizedOutput("aggregate-any-lag", selected, scores)]
+        return [
+            NormalizedOutput("exact-lag", exact_selected, exact_scores),
+            NormalizedOutput(
+                "aggregate-any-lag",
+                reconstructed_aggregate,
+                aggregate_lags(exact_scores, binary=False),
+            ),
+        ]
 
     if method == "pcmci-plus":
         pvalues = np.asarray(native["p_matrix"], dtype=float)
@@ -275,13 +396,19 @@ def normalize_native_output(
         )
 
     if method == "bagged-pcmci-plus":
-        return _lagged_tigramite_output(
+        directed_frequency = _bagged_directed_edge_frequency(
             native["most_frequent_links"],
             native["link_frequency"],
             fit_order=fit_order,
             n_variables=n_variables,
+        )
+        return _lagged_tigramite_output(
+            native["most_frequent_links"],
+            directed_frequency,
+            fit_order=fit_order,
+            n_variables=n_variables,
             graph_name="most_frequent_links",
-            score_name="link_frequency",
+            score_name="directed_edge_frequency",
         )
 
     graph = _require_shape(native["graph"], aggregate_shape, name="graph").astype(
@@ -718,6 +845,8 @@ def score_dataset_outputs(
     dataset_key: str,
     *,
     methods: Sequence[str] = METHODS,
+    decision_alpha: float | None = None,
+    decision_beta: float | None = None,
 ) -> ScoreArtifacts:
     """Score all method checkpoints for one frozen dataset collection.
 
@@ -871,6 +1000,8 @@ def score_dataset_outputs(
                 native,
                 fit_order=fit_order,
                 n_variables=n_variables,
+                decision_alpha=decision_alpha,
+                decision_beta=decision_beta,
             )
             by_estimand = {result.estimand: result for result in normalized}
             if set(expected_estimands) - set(by_estimand):
@@ -914,13 +1045,22 @@ def score_dataset_outputs(
         kind="stable",
     )
     summary = _summarize(run_metrics)
+    if (decision_alpha is None) != (decision_beta is None):
+        raise ValueError(
+            "decision_alpha and decision_beta must be supplied together."
+        )
+    score_directory = "scores"
+    if decision_alpha is not None and decision_beta is not None:
+        alpha_tag = format(decision_alpha, ".6g").replace(".", "p")
+        beta_tag = format(decision_beta, ".6g").replace(".", "p")
+        score_directory = f"scores-alpha-{alpha_tag}-beta-{beta_tag}"
     score_dir = (
         project_root
         / "data"
         / "outputs"
         / "causal-comparison"
         / dataset_key
-        / "scores"
+        / score_directory
     )
     run_metrics_path = score_dir / "run_metrics.csv"
     summary_path = score_dir / "summary_mean_std.csv"

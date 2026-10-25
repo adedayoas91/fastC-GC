@@ -1,10 +1,11 @@
 # fastCGC
 
 `FastGcStar` implements fastC-GC and fastC-GC*. The `fastC-` prefix identifies
-this vectorized implementation; it does not identify a dependence model or
-change the conventional c-GC/c-GC* decision rule. The estimator supports linear,
-kernel, randomized-kernel, and information-theoretic dependence tests while
-keeping the c-GC/c-GC* conditioning rules unchanged.
+these vectorized algorithms; it does not identify a dependence model. They use
+the RCCP decision rule and the c-GC/c-GC* conditioning sets described by
+Adedayo (2026), but standardization, ridge residualization, and complete-shift
+calibration make them distinct estimators. The software supports linear,
+kernel, randomized-kernel, and information-theoretic dependence tests.
 The `fastC-` names are reserved for this portable NumPy/SciPy implementation.
 Separate NVIDIA/cuML implementations retain the conventional c-GC and c-GC*
 names and are outside this repository.
@@ -137,8 +138,8 @@ reference graph. They also install conventional c-GC/c-GC* directly from commit
 supply the runtime dependencies omitted from that repository's package
 metadata, including `torch==2.14.1`, which CDT imports but does not declare.
 The notebooks verify package versions and Git provenance from the active kernel
-environment. The conventional c-GC extra targets the planned Apple Silicon
-machine, where Numba and PyTorch publish CPython 3.14 wheels.
+environment. The conventional c-GC extra targets Apple Silicon, where Numba
+and PyTorch publish CPython 3.14 wheels.
 
 Register the synchronized environment once, then select this kernel in Jupyter
 or VS Code and restart it after dependency changes:
@@ -238,6 +239,61 @@ notebook matrix with:
 ```bash
 uv run --extra dev python experiments/benchmarks/sync_comparison_notebooks.py
 ```
+
+After all six collectors have completed, validate and collate their archived
+outputs with:
+
+```bash
+uv run --extra dev --extra notebooks \
+  python experiments/analyze_causal_comparison.py
+```
+
+The analysis writes publication tables, paired AUPRC contrasts,
+score-agreement summaries, and figures under
+`data/outputs/causal-comparison/analysis/`. It does not refit or rescore an
+estimator. The report marks the archived fast-method thresholded metrics and
+reconstructs Bagged PCMCI+ directed-edge frequency from its modal-mark summary
+after validating the positive-lag graph alphabet. It also recovers the
+lag-specific c-GC/c-GC* decisions from their archived p-value matrices and
+checks that their logical OR reproduces every saved aggregate graph. The
+calibration limitation of the archived fast-method thresholded metrics is documented in the
+manuscript. A separately labelled thresholded comparison should first validate
+`alpha=0.01, beta=0.005` on independent null or development data, then rerun
+fastC-GC and fastC-GC* to archive their separate marginal and conditional
+p-values. The existing c-GC and c-GC* archives already contain the two
+components and can be rescored without refitting. The source-faithful
+`beta=0.001` arm remains available for score-level comparison.
+
+The separate validation workflow covers null calibration, ridge sensitivity,
+and fitted-lag sensitivity without tuning on the benchmark outcomes. It saves
+the marginal and conditional p-values independently, so the same full fit can
+be scored at each declared beta value:
+
+```bash
+uv run --python 3.14 python \
+  experiments/validation/run_statistical_validation.py --max-new-fits 25
+
+uv run --python 3.14 python \
+  experiments/validation/analyze_statistical_validation.py
+```
+
+Rerun the first command to continue from the next unfinished fit. The analysis
+writes a report, statistical appendix, CSV summary, and figure catalog under
+`data/outputs/statistical-validation/analysis/`. A one-seed smoke run verifies
+the workflow but is not evidence for the manuscript; the configured study uses
+50 independent seeds.
+
+A separate wall-clock script is limited to the two direct method pairs rather
+than timing unrelated CSL algorithms:
+
+```bash
+uv run --python 3.14 python \
+  experiments/validation/run_rccp_runtime.py --max-new-cells 1
+```
+
+This timing workflow requires the `conventional-cgc` extra and is intended for
+the Apple Silicon analysis host. Timing values are not included in the paper
+until every declared cell has completed on one machine.
 
 Every simulation DGP has the same seven method notebooks. Each completed
 dataset fit has an atomic checkpoint and an unmodified native-output archive.

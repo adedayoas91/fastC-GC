@@ -1,13 +1,15 @@
 # Causal-structure comparison protocol
 
-## Purpose and current status
+## Purpose and study status
 
 This protocol governs the comparison of fastC-GC and fastC-GC* with the
 conventional c-GC/c-GC* procedures and established time-series causal-structure
-methods. It is a prospective protocol, not a results section. Pilot runs may be
-used to find software or data-generation errors, but confirmatory settings must
-be frozen before held-out seeds are run. Comparative claims should enter the
-manuscript only after the held-out analysis is complete.
+methods. The recorded comparison is complete: 3516 shared datasets produced
+24,612 successful method--dataset fits. This document retains the frozen
+estimands, method boundaries, and analysis rules used to interpret those
+outputs. Development runs may be used to identify software or data-generation
+errors, but settings for any additional confirmatory arm must be frozen before
+its test datasets are analyzed.
 
 The local benchmark runner is `benchmark_causal_methods.py`. It writes the
 shared datasets and their truth arrays, then evaluates only fastC-GC and
@@ -120,10 +122,12 @@ For conventional c-GC/c-GC*, the notebook imports `GcStar` from the installed
 `d_CSL` module after verifying the distribution's Git URL and commit; it does
 not import the local `FastGcStar` under another name. The upstream connectivity
 method combines positive lags with a logical OR. Its output is therefore an
-exact-lag result only when the fitted order is one. For larger orders it is
-evaluated in the aggregate any-lag table. The lag-specific upstream p-value
-arrays are retained as native output but are not re-thresholded locally to
-construct a different estimator.
+aggregate any-lag graph, but the native marginal and conditional p-value arrays
+retain each positive lag. The collector applies the recorded `alpha` and `beta`
+to those arrays using the same conjunction as the upstream connectivity method,
+then verifies that their logical OR exactly reproduces the saved aggregate
+matrix. This checked conversion supports both exact-lag and aggregate scoring
+without changing the estimator. CUTS+ remains aggregate-only.
 
 If an upstream repository cannot ingest the common dataset without changing its
 estimator, use its native generator with matched dimensions, sample size, lag,
@@ -289,6 +293,13 @@ prespecified parameter path must be run or the ranking metrics are reported as
 not available. Scores must have the same direction for every method (larger
 means stronger evidence for an edge).
 
+For Bagged PCMCI+, Tigramite reports the frequency of the modal graph mark.
+Under the pinned PCMCI+ positive-lag graph contract, the only marks are no edge
+and `-->`. Directed-edge frequency is therefore the modal frequency when `-->`
+is modal and one minus the modal frequency when no edge is modal. The collector
+rejects this reconstruction if another positive-lag modal mark appears; such a
+case requires the saved bootstrap graph stack.
+
 ### Thresholded graph metrics
 
 - precision, recall, and F1;
@@ -320,10 +331,11 @@ For controlled and in-silico recovery, the dataset/seed is the paired
 experimental unit. The notebook tables report
 the mean and sample standard deviation across seeds for each method and cell.
 The confirmatory analysis may also report the median and a 95% cluster-bootstrap
-interval. Planned pairwise method contrasts use a paired permutation or
-randomization test on the seed-level metric differences, with effect sizes and
-Holm correction across the declared family of comparisons. Do not treat
-individual edges as independent replicates.
+interval. Pairwise method contrasts use a two-sided Wilcoxon signed-rank test
+on paired dataset-level AUPRC differences, with rank-biserial effect sizes,
+paired bootstrap confidence intervals, and Holm correction across the eight
+declared contrasts within each dataset suite. Do not treat individual edges as
+independent replicates.
 
 AUPRC, AUROC, F1, MCC, and normalized SHD should be compared on the same paired
 controlled or in-silico datasets. The empirical graph panels are descriptive
@@ -374,11 +386,24 @@ and does not accept a random-state object. Setting the recorded wrapper seed is
 best-effort control; deterministic estimator output is not assumed until a
 repeatability check establishes it.
 
-The conventional c-GC/c-GC* thresholds (`alpha=0.01`, `beta=0.001`) and permutation
-count (`N=1000`) are retained as a source-faithful arm. The finite resolution of
-permutation p-values is reported explicitly. A separately labeled validation-
-tuned arm may use a common threshold grid, but no setting may be chosen using
-held-out test seeds.
+The conventional c-GC/c-GC* thresholds (`alpha=0.01`, `beta=0.001`) and
+permutation count (`N=1000`) are retained as a source-faithful arm. Its
+continuous scores remain interpretable, but `beta=0.001` is below the minimum
+complete-shift p-value in every scored dataset and therefore cannot support a
+thresholded comparison of the fast methods. A separately labelled calibration
+arm uses `alpha=0.01` and `beta=0.005`: this value exceeds the largest observed
+floor, `1/245 = 0.00408`, while remaining stricter than the marginal threshold.
+The rule must be checked on separate null or development data, frozen, and then
+used for all four c-GC variants on the same test datasets. Increasing the number
+of repeated evaluations does not improve a complete finite shift orbit; a
+different p-value construction would change the statistical procedure.
+
+New fast-method archives store the marginal and conditional p-value arrays
+separately. This is required because their elementwise maximum preserves edge
+rankings but cannot reconstruct a decision when `alpha != beta`. Existing
+joint-only fast archives remain valid for their recorded score analysis but
+must not be rethresholded. Full evaluation is mandatory in the validation arm;
+short-circuit output does not contain conditional tests for every candidate.
 
 ## Software environment
 

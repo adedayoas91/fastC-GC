@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from fastCGC.experiments.comparison_scoring import (
     collect_dataset_graphs,
@@ -48,6 +49,48 @@ def test_fastcgc_native_output_has_exact_and_aggregate_estimands() -> None:
     )
 
 
+def test_fastcgc_native_output_can_be_rethresholded_from_components() -> None:
+    adjacency = np.zeros((1, 2, 2), dtype=bool)
+    scores = np.full((1, 2, 2), 0.2)
+    marginal = np.ones((1, 2, 2))
+    conditional = np.ones((1, 2, 2))
+    marginal[0, 0, 1] = 0.009
+    conditional[0, 0, 1] = 0.004
+
+    normalized = normalize_native_output(
+        "fast-cgc",
+        {
+            "lag_adjacency": adjacency,
+            "lag_scores": scores,
+            "lag_marginal_pvalues": marginal,
+            "lag_conditional_pvalues": conditional,
+        },
+        fit_order=1,
+        n_variables=2,
+        decision_alpha=0.01,
+        decision_beta=0.005,
+    )
+
+    assert normalized[0].selected[0, 0, 1]
+    assert normalized[1].selected[0, 1]
+
+
+def test_fastcgc_threshold_override_rejects_legacy_joint_only_archive() -> None:
+    with pytest.raises(ValueError, match="separately archived"):
+        normalize_native_output(
+            "fast-cgc",
+            {
+                "lag_adjacency": np.zeros((1, 2, 2), dtype=bool),
+                "lag_scores": np.zeros((1, 2, 2)),
+                "lag_pvalues": np.ones((1, 2, 2)),
+            },
+            fit_order=1,
+            n_variables=2,
+            decision_alpha=0.01,
+            decision_beta=0.005,
+        )
+
+
 def test_pcmci_native_output_uses_source_target_lag_orientation() -> None:
     graph = np.full((3, 3, 3), "", dtype="<U3")
     graph[0, 1, 1] = "-->"
@@ -74,11 +117,12 @@ def test_pcmci_native_output_uses_source_target_lag_orientation() -> None:
     assert exact.scores[0, 0, 1] == 0.99
 
 
-def test_bagged_pcmci_uses_link_frequency_as_ranking_score() -> None:
+def test_bagged_pcmci_reconstructs_directed_edge_frequency() -> None:
     graph = np.full((2, 2, 2), "", dtype="<U3")
     graph[0, 1, 1] = "-->"
-    frequency = np.zeros((2, 2, 2), dtype=float)
+    frequency = np.ones((2, 2, 2), dtype=float)
     frequency[0, 1, 1] = 0.8
+    frequency[1, 0, 1] = 0.8
 
     normalized = normalize_native_output(
         "bagged-pcmci-plus",
@@ -94,15 +138,36 @@ def test_bagged_pcmci_uses_link_frequency_as_ranking_score() -> None:
 
     assert normalized[0].selected[0, 0, 1]
     assert normalized[0].scores[0, 0, 1] == 0.8
+    assert not normalized[0].selected[0, 1, 0]
+    assert np.isclose(normalized[0].scores[0, 1, 0], 0.2)
 
 
-def test_conventional_cgc_and_cuts_are_aggregate_only() -> None:
+def test_bagged_pcmci_rejects_nonbinary_positive_lag_marks() -> None:
+    graph = np.full((2, 2, 2), "", dtype="<U3")
+    graph[0, 1, 1] = "o-o"
+    frequency = np.ones((2, 2, 2), dtype=float)
+
+    with pytest.raises(ValueError, match="directed-edge frequency"):
+        normalize_native_output(
+            "bagged-pcmci-plus",
+            {
+                "most_frequent_links": graph,
+                "link_frequency": frequency,
+                "val_matrix_mean": np.zeros_like(frequency),
+                "val_matrix_interval": np.zeros((*frequency.shape, 2)),
+            },
+            fit_order=1,
+            n_variables=2,
+        )
+
+
+def test_conventional_cgc_recovers_exact_lags_and_cuts_is_aggregate_only() -> None:
     n_variables = 3
     fit_order = 2
     p_corr = np.ones(((fit_order + 1) * n_variables, n_variables))
     p_cond = np.ones_like(p_corr)
     p_corr[n_variables + 0, 1] = 0.01
-    p_cond[n_variables + 0, 1] = 0.02
+    p_cond[n_variables + 0, 1] = 0.001
     conn_mat = np.zeros((n_variables, n_variables))
     conn_mat[0, 1] = 0.4
 
@@ -125,9 +190,14 @@ def test_conventional_cgc_and_cuts_are_aggregate_only() -> None:
         n_variables=2,
     )
 
-    assert [result.estimand for result in conventional] == ["aggregate-any-lag"]
-    assert conventional[0].selected[0, 1]
-    assert conventional[0].scores[0, 1] == 0.98
+    assert [result.estimand for result in conventional] == [
+        "exact-lag",
+        "aggregate-any-lag",
+    ]
+    assert conventional[0].selected[0, 0, 1]
+    assert conventional[0].scores[0, 0, 1] == 0.99
+    assert conventional[1].selected[0, 1]
+    assert conventional[1].scores[0, 1] == 0.99
     assert [result.estimand for result in cuts] == ["aggregate-any-lag"]
     assert cuts[0].selected[0, 1]
     assert not cuts[0].selected[1, 0]

@@ -73,7 +73,9 @@ def test_each_method_notebook_has_dataset_and_resume_contract() -> None:
             assert "MAX_NEW_FITS: int | None = None" in source
             assert "write_checkpoint" in source
             assert "write_npz_checkpoint" in source
-            assert notebook["metadata"]["language_info"]["version"] == "3.14"
+            assert notebook["metadata"]["language_info"]["version"].startswith(
+                "3.14"
+            )
             assert all(
                 not cell.get("outputs")
                 for cell in notebook["cells"]
@@ -121,6 +123,21 @@ def test_conventional_cgc_notebooks_use_installed_git_distribution() -> None:
             assert "load_conventional_cgc(" not in source
 
 
+def test_fast_notebooks_archive_rethresholdable_component_pvalues() -> None:
+    for dataset_root in DATASET_ROOTS.values():
+        for filename in ("fastC-GC.ipynb", "fastC-GC-star.ipynb"):
+            notebook = json.loads(
+                (dataset_root / filename).read_text(encoding="utf-8")
+            )
+            source = _source(notebook)
+
+            assert '"native_output_schema": 2' in source
+            assert 'arrays["lag_marginal_pvalues"]' in source
+            assert 'arrays["lag_conditional_pvalues"]' in source
+            assert 'arrays["ridge"]' in source
+            assert '"causal_methods.py"' in source
+
+
 def test_tigramite_notebooks_use_installed_distribution() -> None:
     expectations = {
         "PCMCI-plus.ipynb": "run_pcmciplus",
@@ -150,6 +167,10 @@ def test_scoring_notebooks_use_shared_tested_scoring_code() -> None:
 
         assert f'DATASET_KEY = "{dataset}"' in source
         assert "score_dataset_outputs" in source
+        assert "DECISION_ALPHA: float | None = None" in source
+        assert "DECISION_BETA: float | None = None" in source
+        assert "decision_alpha=DECISION_ALPHA" in source
+        assert "decision_beta=DECISION_BETA" in source
         assert "mean_std" in source
         assert '"regime"' in source
 

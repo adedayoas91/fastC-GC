@@ -76,7 +76,46 @@ def test_study_adapters_use_lag_source_target_orientation() -> None:
         )
         assert result.lag_adjacency.shape == dataset.lag_truth.shape
         assert result.lag_scores.shape == dataset.lag_truth.shape
+        assert result.lag_marginal_pvalues is not None
+        assert result.lag_conditional_pvalues is not None
+        assert result.lag_marginal_pvalues.shape == dataset.lag_truth.shape
+        assert result.lag_conditional_pvalues.shape == dataset.lag_truth.shape
+        np.testing.assert_allclose(
+            result.lag_pvalues,
+            np.maximum(
+                result.lag_marginal_pvalues,
+                result.lag_conditional_pvalues,
+            ),
+        )
+        expected = (
+            (result.lag_marginal_pvalues <= 0.05)
+            & (result.lag_conditional_pvalues <= 0.05)
+        )
+        np.testing.assert_array_equal(result.lag_adjacency, expected)
         assert np.all(np.isfinite(result.lag_scores))
+
+
+def test_study_adapter_records_nondefault_ridge_and_full_policy() -> None:
+    dataset = simulate_sparse_var(
+        n_variables=3,
+        n_samples=60,
+        order=1,
+        seed=43,
+    )
+
+    result = fit_method(
+        "fast-cgc-star",
+        dataset.series,
+        order=1,
+        alpha=0.05,
+        beta=0.05,
+        ridge=1e-4,
+        evaluation_policy="full",
+        seed=43,
+    )
+
+    assert result.metadata["ridge"] == pytest.approx(1e-4)
+    assert result.metadata["evaluation_policy"] == "full"
 
 
 def test_method_manifest_tracks_upstream_execution_boundaries() -> None:
@@ -144,3 +183,22 @@ def test_method_result_rejects_orientation_shape_mismatches() -> None:
         assert "lag_scores" in str(exc)
     else:  # pragma: no cover - protects the validation contract
         raise AssertionError("shape mismatch should fail")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("lag_marginal_pvalues", "lag_conditional_pvalues"),
+)
+def test_method_result_rejects_component_pvalue_shape_mismatches(
+    field: str,
+) -> None:
+    adjacency = np.zeros((1, 3, 3), dtype=bool)
+    arguments = {
+        "method": "broken",
+        "lag_adjacency": adjacency,
+        "lag_scores": np.zeros_like(adjacency, dtype=float),
+        field: np.zeros((3, 3)),
+    }
+
+    with pytest.raises(ValueError, match=field):
+        MethodResult(**arguments)

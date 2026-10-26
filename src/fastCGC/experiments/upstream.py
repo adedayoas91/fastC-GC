@@ -18,6 +18,10 @@ from typing import Any
 CAUSALIZED_GC_URL = "https://github.com/adedayoas91/causalized-GC.git"
 CAUSALIZED_GC_COMMIT = "575ac1dc67a0282a5ca88bc11a2804df052f674d"
 CAUSALIZED_GC_DISTRIBUTION = "gc-extension"
+CAUSALTS_URL = "https://github.com/bloomberg/causal-ts.git"
+CAUSALTS_COMMIT = "0d1fae061b2445a51d0c8b75fc565d897dd54fb7"
+CAUSALTS_DISTRIBUTION = "causalts"
+CAUSALTS_VERSION = "0.27.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,11 +174,50 @@ def load_installed_conventional_cgc() -> tuple[type[Any], UpstreamRevision]:
     return gcstar, revision
 
 
+def load_installed_cedar() -> tuple[Any, type[Any], UpstreamRevision]:
+    """Load CEDAR from the verified official CausalTS Git distribution."""
+
+    revision = verify_installed_vcs_distribution(
+        CAUSALTS_DISTRIBUTION,
+        expected_url=CAUSALTS_URL,
+        expected_commit=CAUSALTS_COMMIT,
+        install_extra="cedar",
+    )
+    observed_version = version(CAUSALTS_DISTRIBUTION)
+    if observed_version != CAUSALTS_VERSION:
+        raise RuntimeError(
+            f"Installed {CAUSALTS_DISTRIBUTION} version is {observed_version}; "
+            f"expected {CAUSALTS_VERSION}. Run `uv sync --extra cedar`."
+        )
+
+    discovery = import_module("causalts.cedar.discovery")
+    ci_tests = import_module("causalts.ci_tests")
+    module_path = Path(discovery.__file__).resolve()
+    expected_package_root = (revision.root / "causalts").resolve()
+    if not module_path.is_relative_to(expected_package_root):
+        raise ImportError(
+            "Imported causalts is not the verified installed distribution: "
+            f"{module_path}."
+        )
+    run_cedar = getattr(discovery, "run_cedar", None)
+    parcorr_gpu = getattr(ci_tests, "ParCorrGPU", None)
+    if run_cedar is None or parcorr_gpu is None:
+        raise ImportError(
+            "Installed causalts does not expose run_cedar and ParCorrGPU."
+        )
+    return run_cedar, parcorr_gpu, revision
+
+
 __all__ = [
+    "CAUSALTS_COMMIT",
+    "CAUSALTS_DISTRIBUTION",
+    "CAUSALTS_URL",
+    "CAUSALTS_VERSION",
     "CAUSALIZED_GC_COMMIT",
     "CAUSALIZED_GC_DISTRIBUTION",
     "CAUSALIZED_GC_URL",
     "UpstreamRevision",
+    "load_installed_cedar",
     "load_installed_conventional_cgc",
     "verify_installed_distribution",
     "verify_installed_vcs_distribution",

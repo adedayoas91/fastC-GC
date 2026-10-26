@@ -10,18 +10,20 @@ main benchmark outputs:
 - `run_rccp_runtime.py` is a narrow wall-clock comparison of fastC-GC versus
   c-GC and fastC-GC* versus c-GC*. It does not time the unrelated CSL baselines.
 
-All runners use atomic per-fit checkpoints. Start with a bounded batch and
-rerun the same command to resume:
+All runners use atomic per-fit checkpoints. With the project virtual
+environment activated, each full workflow runs to completion with one command:
 
 ```bash
-uv run --python 3.14 python experiments/validation/run_statistical_validation.py \
-  --max-new-fits 25
+python experiments/validation/run_statistical_validation.py
 
-uv run --python 3.14 python experiments/validation/analyze_statistical_validation.py
+python experiments/validation/analyze_statistical_validation.py
 
-uv run --python 3.14 python experiments/validation/run_rccp_runtime.py \
-  --max-new-cells 1
+python experiments/validation/run_rccp_runtime.py
 ```
+
+If a run is interrupted, rerun the same command; verified checkpoints are
+reused. The `--max-new-fits` and `--max-new-cells` options remain available for
+intentionally bounded sessions.
 
 The component marginal and conditional p-values are archived separately. This
 allows the declared beta grid to be scored from one full-evaluation fit. Do not

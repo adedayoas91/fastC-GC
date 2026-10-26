@@ -5,13 +5,11 @@
 This review covers the claims, proofs, agreement with the current implementation,
 citation support, and manuscript writing in `../manuscript/`. The reported
 stored graph-recovery values were treated as accepted results, as requested; I
-did not re-adjudicate whether those values are scientifically “good.” Earlier
-policy, ridge, and null diagnostics were executed and analyzed during the
-revision; they do not replace the benchmark-specific calibration arm described
-below.
-Earlier runtime and memory measurements are retained only as historical
-artifacts and are not part of the current paper or comparison plan. I checked
-claims about how the estimator and its tests operate.
+did not re-adjudicate whether those values are scientifically “good.” The
+benchmark-specific calibration, ridge, maximum-lag, and direct-pair runtime
+studies have now been completed. Earlier runtime and memory measurements remain
+historical artifacts and are distinct from the current single-thread grid. I
+checked claims about how the estimator and its tests operate.
 
 Evidence inspected:
 
@@ -31,8 +29,8 @@ new fits, and longer-term method development.
 |---|---|---|
 | Statement only | State that the fixed ridge is a numerical default rather than a tuned optimum; distinguish analytic diagnostics from shift decisions; identify full/short-circuit as an execution policy; repeat the present-time-sink limitation for measured data. | Added to the manuscript. |
 | Literature context | Discuss dimension-reduced GC, CEDAR, variable-lag GC, and time-reversed GC without presenting them as completed comparisons. | Added with verified primary citations. Generic CI accelerators were omitted because they are not complete time-series graph learners. |
-| Requires new fits | Calibrate the complete-shift test on i.i.d., stationary autoregressive, and drifting nulls; examine the ridge grid and fitted maximum lag; then freeze and apply the selected threshold to all four c-GC variants. | The resumable runner, separate p-value archive fields, scoring override, tests, and analysis bundle are implemented. A one-seed end-to-end smoke run passed. The 50-seed study and benchmark reruns remain to be executed. |
-| Requires the Apple-silicon host | Compare wall-clock time only within the two direct pairs, fastC-GC versus c-GC and fastC-GC* versus c-GC*. | A separate resumable script is ready. This Intel host cannot install the pinned PyTorch 3.14 wheel required by the conventional package, so no timing result has been added to the manuscript. |
+| Requires new fits | Calibrate the complete-shift test on i.i.d., stationary autoregressive, and drifting nulls; examine the ridge grid and fitted maximum lag; then freeze and apply the selected threshold to all four c-GC variants. | Completed: 2,000/2,000 fits succeeded, `beta=0.005` was frozen for the tested i.i.d./stationary settings, and all four graph-truth suites were rescored without failures. |
+| Requires the Apple-silicon host | Compare wall-clock time only within the two direct pairs, fastC-GC versus c-GC and fastC-GC* versus c-GC*. | Completed: 32/32 method cells and 160 timed measurements succeeded on the Apple M5 Max host. The manuscript reports bounded, hardware-specific end-to-end ratios. |
 | Deferred method work | Adaptive or vanishing ridge theory, a dual Woodbury path, selected-entry Schur updates, parametric correction when shift invariance fails, and integration with variable-lag or time-reversal filters. | Not part of this revision. Each changes the estimator, proof obligations, or experimental estimand and needs a separate study. |
 
 The calibration runner deliberately uses full evaluation. A short-circuit fit
@@ -51,7 +49,7 @@ codebase have been executed rather than left as proposed work.
 | Inactive conditional-screen claim | The manuscript now describes the precision-derived quantity as an analytic diagnostic. The public attributes are `analytic_score_` and `analytic_pvalue_`; the former `screen_*` names remain documented compatibility aliases. `screen_alpha` is explicitly a legacy no-op for the linear profile. | Regression tests compare `screen_alpha=0` and `1`, require full-policy shift provenance, and check full/short-circuit equivalence at fitted thresholds. |
 | Fixed-ridge statistic overclaimed as a Gaussian conditional-independence test | The adjacency theorem is stated only for population-level conditional independence. The Gaussian common-cause counterexample is proved, tested from exact sample moments, and reported over a ridge grid. | The empirical residual correlations agree with the counterexample formula to a maximum absolute error of (2.3\times10^{-15}). |
 | Package and test route not reproducible | The project now uses the standard `src/fastCGC/` layout, keeps estimator implementations in `fastCGC.core`, exposes a stable public namespace, and uses that namespace in tests, scripts, and notebooks. | The current suite passes all 137 tests, both source and wheel distributions build, and an unpacked-wheel fit succeeds from outside the repository. |
-| No controlled runtime or memory evidence | Superseded by the decision to exclude runtime, memory, hardware, and accelerator rankings from the study. | The active cross-method runner and notebooks record scientific outputs and provenance, not timing or memory endpoints. Older measurements under `data/outputs/linear-methodology/` are historical only. |
+| No controlled runtime or memory evidence | A narrow wall-clock comparison was later authorized for the two direct algorithm pairs; memory remains outside scope. | The fresh-process, single-thread grid completed 32 method cells with five timed repeats each. Older measurements under `data/outputs/linear-methodology/` remain historical only. |
 | No policy or ridge ablation | Full/short-circuit and ridge-grid studies were added, including sparse, dense, regular, and near-collinear regimes. | 64 policy rows and 200 ridge rows were analyzed. All paired policy decisions and graph supports agree at the fitted thresholds. |
 | No calibration or graph-wide null evidence | Selected-pair IID and AR(1) null studies and a graph-wide AR(1) null study were added. | 1,000 selected-pair datasets and 200 graph-level datasets are stored with Wilson intervals, discrete-orbit binomial tests, and Holm adjustment. |
 
@@ -76,9 +74,9 @@ made in the manuscript, and limitations are stated where the evidence stops.
 The proofs and implementation claims have no remaining correctness blocker.
 The paper presents fastC-GC and fastC-GC* as standalone algorithms that use the
 RCCP decision rule and the c-GC/c-GC* conditioning sets, without claiming
-output equivalence or a runtime advantage. The completed comparison reports
-graph-recovery efficacy and paired score agreement. Its thresholded fast-method
-results require the calibration rerun described below.
+output equivalence. The completed comparison reports score agreement,
+calibrated graph recovery, sensitivity analyses, and hardware-specific runtime
+for the direct algorithm pairs.
 
 ## Findings and their resolution
 
@@ -451,7 +449,7 @@ Final writing observations:
   workspace. The collector also produced edge/status tables and PDF/PNG graph
   panels without requiring a truth graph.
 - `tectonic main.tex`: passed after the framing revision and generated a
-  13-page PDF. The build retains non-fatal underfull-box warnings and the
+  14-page PDF. The build retains non-fatal underfull-box warnings and the
   template's existing overfull abstract/keyword line warning.
 
 ## Completed comparison and remaining work
@@ -461,21 +459,21 @@ method--dataset fits. The analysis includes conventional c-GC/c-GC*,
 fastC-GC/fastC-GC*, PCMCI+, Bagged PCMCI+, and CUTS+. Controlled and in-silico
 results use paired recovery metrics; the Causal Chambers and CausalRivers
 outputs remain descriptive graph comparisons because their supplied networks
-are not treated as exhaustive lag-resolved truth. Runtime, memory, hardware,
-and accelerator rankings remain outside the study.
+are not treated as exhaustive lag-resolved truth. The direct-pair runtime grid
+is included; memory and accelerator rankings remain outside the study.
 
 Two findings changed how the archived metrics are interpreted:
 
-1. **The fast-method threshold requires recalibration.** Complete circular
+1. **The fast-method threshold required recalibration.** Complete circular
    shifts have minimum p-value `1/n_effective`. Across the four scored suites,
    the largest floor is `1/245 = 0.00408`, so the source-faithful
-   `beta=0.001` rule cannot select an edge. AUROC and AUPRC remain usable, but
-   F1, MCC, and SHD from the empty fast-method graphs are excluded. A separate
-   arm should validate `alpha=0.01, beta=0.005` on independent null or
-   development data, freeze that rule, and rerun all four c-GC variants on the
-   same test datasets. Repeating the complete orbit does not improve its
-   resolution; an analytic or randomized p-value would define a different
-   procedure.
+   `beta=0.001` rule cannot select an edge. The 50-seed independent null grid
+   supported `alpha=0.01, beta=0.005` for the tested i.i.d. and stationary
+   settings. That rule was frozen and applied to all four graph-truth suites;
+   the manuscript now reports calibrated F1, MCC, and SHD. The drifting-null
+   and graph-familywise results delimit the claim. Repeating the complete orbit
+   does not improve its resolution; an analytic or randomized p-value would
+   define a different procedure.
 2. **Bagged PCMCI+ ranking scores were recovered without refitting.** Tigramite
    saved the frequency of the modal graph mark rather than the directed-edge
    frequency. The pinned positive-lag output uses only no edge and `-->`, and

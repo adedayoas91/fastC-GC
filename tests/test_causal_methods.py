@@ -143,6 +143,10 @@ def test_method_manifest_tracks_upstream_execution_boundaries() -> None:
         assert by_key[method].dependency == "tigramite==5.2.10.1"
         assert not by_key[method].runnable
 
+    assert by_key["cedar"].track == "installed-vcs"
+    assert by_key["cedar"].dependency.startswith("causalts @ git+")
+    assert not by_key["cedar"].runnable
+
     assert by_key["mssd"].track == "pending-upstream"
     assert not by_key["mssd"].runnable
     assert by_key["dynotears"].track == "historical-only"

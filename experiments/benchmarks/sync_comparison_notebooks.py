@@ -19,6 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 NOTEBOOK_ROOT = PROJECT_ROOT / "notebooks"
 
 TIGRAMITE_VERSION = "5.2.10.1"
+CAUSALTS_COMMIT = "0d1fae061b2445a51d0c8b75fc565d897dd54fb7"
+CAUSALTS_VERSION = "0.27.0"
 UNN_URL = "https://github.com/jarrycyx/UNN.git"
 UNN_COMMIT = "2212724cce8a7752db564089a7537fecedb0e36d"
 DREAM3_DATA_URL = (
@@ -179,6 +181,15 @@ METHODS = (
         f"tigramite=={TIGRAMITE_VERSION} (installed distribution)",
     ),
     MethodSpec(
+        "cedar",
+        "CEDAR.ipynb",
+        "CEDAR",
+        (
+            f"causalts=={CAUSALTS_VERSION} from bloomberg/causal-ts "
+            f"commit {CAUSALTS_COMMIT} (installed Git distribution)"
+        ),
+    ),
+    MethodSpec(
         "cuts-plus",
         "CUTS-plus.ipynb",
         "CUTS+",
@@ -266,6 +277,22 @@ from fastCGC.experiments.notebook_checkpoint import (
 
 
 def _settings(dataset: DatasetSpec, method: MethodSpec) -> str:
+    cedar_configuration = ""
+    if method.key == "cedar":
+        cedar_configuration = '''    "alpha_cond1": ALPHA,
+    "alpha_cond2": ALPHA,
+    "lag_method": "partial_dcor",
+    "lag_pvalue_method": "t_test",
+    "lag_alpha": 0.05,
+    "lag_n_permutations": 200,
+    "normalize": "minmax",
+    "prune": True,
+    "include_lag0": False,
+    "multi_lag": True,
+    "multi_lag_keep": "first",
+    "include_autoreg": True,
+    "assume_ar1": True,
+'''
     return f'''
 DATASET_KEY = "{dataset.key}"
 METHOD_KEY = "{method.key}"
@@ -300,7 +327,7 @@ RUN_CONFIGURATION = {{
     "n_permutations": N_PERMUTATIONS,
     "bootstrap_samples": BOOTSTRAP_SAMPLES,
     "truth_scope": "{dataset.truth}",
-    **({{"native_output_schema": 2}} if METHOD_KEY.startswith("fast-") else {{}}),
+{cedar_configuration}    **({{"native_output_schema": 2}} if METHOD_KEY.startswith("fast-") else {{}}),
 }}
 CONFIG_HASH = configuration_hash(RUN_CONFIGURATION)
 print(f"Dataset directory: {{DATASET_DIR}}")
@@ -452,6 +479,70 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
         "link_frequency": summary["link_frequency"],
         "val_matrix_mean": summary["val_matrix_mean"],
         "val_matrix_interval": summary["val_matrix_interval"],
+    }}
+'''
+
+
+CEDAR_RUNNER = f'''
+import pandas as pd
+
+from fastCGC.experiments.upstream import (
+    CAUSALTS_VERSION,
+    load_installed_cedar,
+)
+
+run_cedar, ParCorrGPU, UPSTREAM_REVISION = load_installed_cedar()
+SOURCE_REVISION = UPSTREAM_REVISION.commit
+
+
+def run_native(series, fit_order, algorithm_seed, run_dir):
+    frame = pd.DataFrame(
+        np.asarray(series.T, dtype=float),
+        columns=[f"X{{index}}" for index in range(series.shape[0])],
+    )
+    ci_test = ParCorrGPU(
+        frame.to_numpy(copy=False),
+        device="cpu",
+        seed=algorithm_seed,
+    )
+    result = run_cedar(
+        df=frame,
+        ci_test=ci_test,
+        max_lag=fit_order,
+        alpha_cond1=ALPHA,
+        alpha_cond2=ALPHA,
+        lag_method="partial_dcor",
+        lag_pvalue_method="t_test",
+        lag_alpha=0.05,
+        n_permutations=200,
+        normalize="minmax",
+        filter_children=False,
+        prune=True,
+        sweep_all_lags=False,
+        max_prune_path=4,
+        include_lag0=False,
+        multi_lag=True,
+        multi_lag_keep="first",
+        n_jobs=1,
+        include_C=False,
+        include_autoreg=True,
+        assume_ar1=True,
+        verbose=False,
+    )
+    return {{
+        "cg_tig": np.asarray(result.cg_tig),
+        "val_matrix": np.asarray(result.val_matrix),
+        "pvalue_matrix": np.asarray(result.pvalue_matrix),
+        "lag_importance": np.asarray(result.lag_importance),
+        "lag_pvalues": np.asarray(result.lag_pvalues),
+        "selected_lags": np.asarray(result.selected_lags),
+        "var_names": np.asarray(result.var_names),
+        "max_lag": np.asarray(result.max_lag),
+        "alpha_cond1": np.asarray(result.alpha_cond1),
+        "alpha_cond2": np.asarray(result.alpha_cond2),
+        "n_tests": np.asarray(result.n_tests),
+        "pruned": np.asarray(result.pruned),
+        "causalts_version": np.asarray(CAUSALTS_VERSION),
     }}
 '''
 
@@ -626,6 +717,8 @@ def _runner(method: MethodSpec) -> str:
         return PCMCI_RUNNER
     if method.key == "bagged-pcmci-plus":
         return BAGGED_PCMCI_RUNNER
+    if method.key == "cedar":
+        return CEDAR_RUNNER
     if method.key == "cuts-plus":
         return CUTS_RUNNER
     raise KeyError(method.key)
@@ -1579,7 +1672,7 @@ def _prepare_notebook(dataset: DatasetSpec) -> dict[str, Any]:
 # Prepare shared {dataset.label} data
 
 This notebook creates or verifies the frozen `{dataset.key}` bundles used by
-all seven method notebooks in this directory. Data generation and acquisition
+all eight method notebooks in this directory. Data generation and acquisition
 are kept separate from model fitting so every method reads byte-identical
 observations and {shared_graph}.
 '''
@@ -1619,7 +1712,7 @@ time around a reference cell, with 50 seeds per cell. A cross-link-free cell
 measures false positives when the cross-variable graph is empty.
 
 The paper's broad simulation includes 30% contemporaneous cross-links. This
-matched comparison arm sets that fraction to zero because all seven methods
+matched comparison arm sets that fraction to zero because all eight methods
 can be scored on a shared positive-lag graph, whereas they do not expose a
 common contemporaneous estimand. This is a declared adaptation, not a claim of
 literal reproduction. The notebook calls the official generator from its

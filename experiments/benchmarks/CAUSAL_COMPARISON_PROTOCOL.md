@@ -4,12 +4,14 @@
 
 This protocol governs the comparison of fastC-GC and fastC-GC* with the
 conventional c-GC/c-GC* procedures and established time-series causal-structure
-methods. The recorded comparison is complete: 3516 shared datasets produced
-24,612 successful method--dataset fits. This document retains the frozen
-estimands, method boundaries, and analysis rules used to interpret those
-outputs. Development runs may be used to identify software or data-generation
-errors, but settings for any additional confirmatory arm must be frozen before
-its test datasets are analyzed.
+methods. The original seven-method comparison is complete: 3516 shared
+datasets produced 24,612 successful method--dataset fits. CEDAR has since been
+added as an eighth, separately executable comparison arm; its results remain
+pending until its notebooks and collectors are run. This document retains the
+frozen estimands, method boundaries, and analysis rules used to interpret the
+recorded outputs. Development runs may be used to identify software or
+data-generation errors, but settings for any additional confirmatory arm must
+be frozen before its test datasets are analyzed.
 
 The local benchmark runner is `benchmark_causal_methods.py`. It writes the
 shared datasets and their truth arrays, then evaluates only fastC-GC and
@@ -26,12 +28,17 @@ changes in method ranking across its data-generating regimes. The shortlist
 therefore uses recent evidence and complementary assumptions rather than venue
 date alone.
 
-The three headline external comparators are PCMCI+, Bagged PCMCI+, and CUTS+.
+The headline external comparators are PCMCI+, Bagged PCMCI+, CEDAR, and CUTS+.
 PCMCI+ provides a maintained, lag-resolved constraint-based reference. Bagged
 PCMCI+ is the 2024 bootstrap-aggregation extension, which improved precision and
 recall over PCMCI+ in the reported difficult regimes. CUTS+ is the recent neural
 comparator selected for its high-dimensional and irregular-sampling results in
 the 2024 paper and CausalTime benchmark.
+CEDAR supplies a recent autoregressive, lag-resolved constraint-based method
+whose official CausalTS implementation supports the project's Python 3.14
+environment. Its final binary graph is directly scoreable, but its public
+result does not contain a complete post-pruning confidence value for every
+candidate edge; AUROC and AUPRC are therefore unavailable for CEDAR.
 These methods do not all return the same graph object, so they are not forced
 into one leaderboard. Their repositories remain unchanged; method-specific
 post-processing is limited to converting saved native outputs into the declared
@@ -60,6 +67,7 @@ the same graph outside this controlled setting.
 | Lasso-VAR | penalized regression | Optional sparse linear control | Pinned upstream implementation; no local estimator code |
 | PCMCI+ with ParCorr | constraint-based | Autocorrelation-aware causal discovery | Installed `tigramite==5.2.10.1`; positive lags only in the exact-lag track |
 | Bagged PCMCI+ with ParCorr | bootstrap-aggregated constraint-based | Recent lag-resolved comparator | Installed `tigramite==5.2.10.1` using its native bootstrap routine |
+| CEDAR with ParCorrGPU | autoregressive constraint-based | Recent lag-resolved comparator | Installed official `causalts==0.27.0` Git distribution at commit `0d1fae061b2445a51d0c8b75fc565d897dd54fb7` |
 | CUTS+ | neural Granger / graph neural network | Recent high-dimensional neural comparator | Authors' pinned UNN checkout; aggregate variable graph only |
 | Stationarity-Aware Discovery (MSSD) | constraint-based minimal separating sets | Newest same-estimand candidate | Pending; advertised official repository was empty on 20 October 2026 |
 | VAR-LiNGAM | non-Gaussian functional model | Directional non-Gaussian baseline | Pinned authors' checkout; primary interpretation on Laplace-innovation data |
@@ -88,6 +96,7 @@ Primary records:
 - classical Granger causality: [Granger (1969)](https://doi.org/10.2307/1912791)
 - PCMCI+: [Runge (2020)](https://proceedings.mlr.press/v124/runge20a.html) and [Tigramite documentation](https://jakobrunge.github.io/tigramite/)
 - Bagged PCMCI+: [Debeire et al. (2024)](https://proceedings.mlr.press/v236/debeire24a.html)
+- CEDAR: [Fesanghary (2026)](https://arxiv.org/abs/2607.20696) and [official CausalTS source](https://github.com/bloomberg/causal-ts)
 - CUTS+: [Cheng et al. (2024)](https://ojs.aaai.org/index.php/AAAI/article/view/29034) and [authors' source](https://github.com/jarrycyx/UNN)
 - Stationarity-Aware Discovery: [Gao et al. (2026)](https://proceedings.mlr.press/v300/gao26a.html) and [advertised source repository](https://github.com/CausalML-Lab/StationarityAwareDiscovery)
 - recent cross-method evidence: [CausalTime (ICLR 2024)](https://proceedings.iclr.cc/paper_files/paper/2024/hash/0c79d6ed1788653643a1ac67b6ea32a7-Abstract-Conference.html) and [CausalDynamics (NeurIPS 2025)](https://proceedings.neurips.cc/paper_files/paper/2025/hash/39a3f7dc00e4723a5ca7808b04fc4d4f-Abstract-Datasets_and_Benchmarks_Track.html)
@@ -127,7 +136,10 @@ retain each positive lag. The collector applies the recorded `alpha` and `beta`
 to those arrays using the same conjunction as the upstream connectivity method,
 then verifies that their logical OR exactly reproduces the saved aggregate
 matrix. This checked conversion supports both exact-lag and aggregate scoring
-without changing the estimator. CUTS+ remains aggregate-only.
+without changing the estimator. CEDAR's `cg_tig[cause, effect, lag]` graph is
+converted by moving the positive-lag axis to the front. Its preliminary
+lag-screening p-values and partial Condition-1 p-value matrix are retained but
+not treated as final edge-confidence rankings. CUTS+ remains aggregate-only.
 
 If an upstream repository cannot ingest the common dataset without changing its
 estimator, use its native generator with matched dimensions, sample size, lag,
@@ -142,7 +154,7 @@ autocorrelated structural causal process, and DREAM3. DREAM3 is generated in
 silico with GeneNetWeaver and is not classified as a real-world dataset.
 Measured data are under `notebooks/empirical/causalChamber/` and
 `notebooks/empirical/causalRivers/`. Every directory contains one preparation
-notebook and one notebook for each of the seven runnable methods. Simulation
+notebook and one notebook for each of the eight runnable methods. Simulation
 directories end with a scoring notebook; empirical directories end with an
 edge-collection and graph-visualization notebook. All method notebooks in a
 directory consume the same saved bundles and never generate method-specific
@@ -174,6 +186,9 @@ data object prevents an orientation error from being hidden in method-specific
 scoring code.
 
 - Exact-lag recovery is primary among methods that return lag-resolved graphs.
+- CEDAR uses its documented default `multi_lag_keep="first"`. It may screen
+  several lags for a pair but stops after the first accepted cross-lag, so its
+  exact-lag recall must be interpreted with that one-lag-per-pair limitation.
 - Any-lag aggregate recovery is the common cross-family endpoint when CUTS+ is
   included. It is reported in a separate table and never presented as evidence
   of exact-lag recovery.
@@ -221,7 +236,7 @@ innovation scales, accepted model seeds, and stationarity rejections are
 retained with the data.
 
 The source study includes a 30% contemporaneous-link setting. The matched
-seven-method comparison uses `contemp_fraction=0.0`, because the methods do not
+eight-method comparison uses `contemp_fraction=0.0`, because the methods do not
 all return a compatible contemporaneous graph. This deviation is recorded in
 every bundle. A source-faithful contemporaneous experiment, if run, belongs in
 a separate table with method-specific estimands and must not be pooled with the
@@ -255,7 +270,7 @@ from Causal Chambers. The source-faithful primary bundle uses the
 time-series causal-discovery case study, per-variable min--max normalization,
 and maximum fitted lag 10. The physical causal model distributed by the
 project is stored as a reference network. It is displayed separately from the
-seven inferred graphs and is not required for running the collector.
+eight inferred graphs and is not required for running the collector.
 
 The second study uses CausalRivers discharge measurements from eastern Germany
 and Bavaria. It applies the authors' connected-subgraph routine to five-station
@@ -299,6 +314,12 @@ and `-->`. Directed-edge frequency is therefore the modal frequency when `-->`
 is modal and one minus the modal frequency when no edge is modal. The collector
 rejects this reconstruction if another positive-lag modal mark appears; such a
 case requires the saved bootstrap graph stack.
+
+CEDAR's `pvalue_matrix` records only its first conditional-independence
+condition for candidates that reached that stage, and MCI pruning does not
+update it. Its `lag_pvalues` belong to preliminary lag screening. Neither is a
+complete final-edge confidence ranking, so CEDAR receives thresholded graph
+metrics but not AUROC or AUPRC in the main comparison.
 
 ### Thresholded graph metrics
 

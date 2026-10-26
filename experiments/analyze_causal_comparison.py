@@ -52,6 +52,7 @@ METHOD_ORDER = (
     "fast-cgc-star",
     "pcmci-plus",
     "bagged-pcmci-plus",
+    "cedar",
     "cuts-plus",
 )
 METHOD_LABELS = {
@@ -61,6 +62,7 @@ METHOD_LABELS = {
     "fast-cgc-star": "fastC-GC*",
     "pcmci-plus": "PCMCI+",
     "bagged-pcmci-plus": "Bagged PCMCI+",
+    "cedar": "CEDAR",
     "cuts-plus": "CUTS+",
 }
 METHOD_COLORS = {
@@ -70,13 +72,15 @@ METHOD_COLORS = {
     "fast-cgc-star": "#E69F00",
     "pcmci-plus": "#009E73",
     "bagged-pcmci-plus": "#CC79A7",
+    "cedar": "#332288",
     "cuts-plus": "#000000",
 }
 
 # The collector converts Tigramite's modal graph-mark frequency to directed
 # edge frequency after verifying that positive-lag marks are binary (no edge or
-# ``-->``). All seven methods therefore have valid ranking scores.
-RANKING_VALID = frozenset(METHOD_ORDER)
+# ``-->``). CEDAR is excluded because its public result contains no complete
+# post-pruning edge-confidence matrix.
+RANKING_VALID = frozenset(METHOD_ORDER) - {"cedar"}
 
 # With complete circular-shift calibration, p >= 1/n_effective.  The fixed
 # beta=0.001 is below that floor in every scored simulation, so the archived
@@ -675,7 +679,7 @@ def write_reports(
 
 The analysis asks whether the continuous scores of fastC-GC and fastC-GC*
 retain the graph-discrimination behavior of conventional c-GC and c-GC*, how
-all seven methods compare on common controlled datasets, and how their inferred
+all eight methods compare on common controlled datasets, and how their inferred
 graphs differ on the two measured-data case studies. Runtime is not analyzed.
 
 ## Artifact validation
@@ -693,6 +697,11 @@ For Bagged PCMCI+, the collector converts Tigramite's modal-mark frequency to
 directed-edge frequency. Every archived positive-lag graph contains only the
 no-edge and directed-edge marks, so the edge frequency is the modal frequency
 when the edge is modal and its complement when no edge is modal.
+
+CEDAR contributes thresholded exact-lag and aggregate graph metrics. Its
+archived p-values belong to preliminary or partial tests rather than a complete
+post-pruning edge-confidence matrix, so CEDAR is omitted from AUROC and AUPRC
+tables and figures.
 
 ## Calibration finding
 
@@ -767,6 +776,8 @@ declared contrasts within each dataset suite.
 
 - Bagged PCMCI+ directed-edge frequency is reconstructed only after verifying
   that the archived positive-lag mark alphabet is binary.
+- CEDAR has no complete post-pruning edge-confidence matrix, so its AUROC and
+  AUPRC are unavailable rather than computed from an internal screening score.
 - Thresholded fast-method contrasts are excluded because beta=0.001 is below
   the attainable complete-shift p-value floor.
 - DREAM3 has only five heterogeneous networks; its intervals and tests have
@@ -809,7 +820,8 @@ declared contrasts within each dataset suite.
 - Observation: both c-GC pairs, PCMCI+, and Bagged PCMCI+ retain strong
   exact-lag ranking; performance is lower for the autocorrelated nonlinear
   process.
-- Caveat: CUTS+ does not expose a lag-resolved native output.
+- Caveat: CUTS+ does not expose a lag-resolved native output, while CEDAR does
+  not expose a complete final-edge ranking score.
 
 ## empirical-edge-counts.pdf
 

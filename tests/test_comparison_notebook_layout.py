@@ -29,6 +29,7 @@ METHOD_NOTEBOOKS = {
     "c-GC-star.ipynb": "cgc-star",
     "PCMCI-plus.ipynb": "pcmci-plus",
     "Bagged-PCMCI-plus.ipynb": "bagged-pcmci-plus",
+    "CEDAR.ipynb": "cedar",
     "CUTS-plus.ipynb": "cuts-plus",
 }
 
@@ -153,6 +154,28 @@ def test_tigramite_notebooks_use_installed_distribution() -> None:
             assert 'verify_installed_distribution(\n    "tigramite"' in source
             assert "TIGRAMITE_ROOT" not in source
             assert "verify_upstream_revision" not in source
+
+
+def test_cedar_notebooks_use_pinned_official_git_distribution() -> None:
+    for dataset_root in DATASET_ROOTS.values():
+        notebook = json.loads(
+            (dataset_root / "CEDAR.ipynb").read_text(encoding="utf-8")
+        )
+        source = _source(notebook)
+
+        assert "load_installed_cedar" in source
+        assert "run_cedar(" in source
+        assert "ParCorrGPU(" in source
+        assert 'device="cpu"' in source
+        assert 'lag_method="partial_dcor"' in source
+        assert 'lag_pvalue_method="t_test"' in source
+        assert "include_lag0=False" in source
+        assert "multi_lag=True" in source
+        assert 'multi_lag_keep="first"' in source
+        assert '"cg_tig": np.asarray(result.cg_tig)' in source
+        assert '"pvalue_matrix": np.asarray(result.pvalue_matrix)' in source
+        assert "CAUSALTS_ROOT" not in source
+        assert "verify_upstream_revision" not in source
 
 
 def test_pending_mssd_notebook_is_not_fabricated() -> None:

@@ -17,7 +17,7 @@ empirical/
 └── causalRivers/
 ```
 
-Every directory contains the same preparation notebook and seven method
+Every directory contains the same preparation notebook and eight method
 notebooks:
 
 ```text
@@ -28,6 +28,7 @@ c-GC.ipynb
 c-GC-star.ipynb
 PCMCI-plus.ipynb
 Bagged-PCMCI-plus.ipynb
+CEDAR.ipynb
 CUTS-plus.ipynb
 ```
 
@@ -38,10 +39,10 @@ Simulation and in-silico directories end with
 Run `00-prepare-data.ipynb` first. It creates or validates the immutable dataset
 bundles used by every method notebook in that directory. The method notebooks
 save native outputs before common graph conversion. Conventional
-c-GC/c-GC*, PCMCI+, and Bagged PCMCI+ are imported from pinned distributions in
-the active environment. CUTS+ is loaded from its pinned authors' checkout under
-the ignored `external/` directory. Their estimators are not copied into this
-repository.
+c-GC/c-GC*, PCMCI+, Bagged PCMCI+, and CEDAR are imported from pinned
+distributions in the active environment. CUTS+ is loaded from its pinned
+authors' checkout under the ignored `external/` directory. Their estimators
+are not copied into this repository.
 
 For simulations and DREAM3, run `90-collect-and-score.ipynb` after the method
 notebooks. It validates the
@@ -51,6 +52,9 @@ writes `run_metrics.csv` plus `summary_mean_std.csv` under
 mean and sample standard deviation across dataset instances in the same
 experimental cell. Exact-lag and aggregate-any-lag results remain separate;
 methods with aggregate-only native outputs are not assigned synthetic lags.
+CEDAR contributes binary graph metrics on both estimands. Its upstream result
+does not expose a complete post-pruning score for every candidate edge, so the
+collector leaves CEDAR's AUROC and AUPRC fields unavailable.
 
 For Causal Chambers and CausalRivers, run
 `90-collect-and-visualize.ipynb`. It exports every inferred cross-variable edge,
@@ -69,13 +73,14 @@ than downloading data from an unverified mirror.
 Install the packaged comparison dependencies in the project environment first:
 
 ```bash
-uv sync --extra dev --extra notebooks --extra comparison --extra conventional-cgc
+uv sync --extra dev --extra notebooks --extra comparison --extra conventional-cgc --extra cedar
 ```
 
 The `notebooks` extra supplies the complete IPython kernel, including
 `matplotlib-inline` and the dependencies needed to render tracebacks. The
 remaining extras install `tigramite==5.2.10.1`, `causalchamber==0.2.8`, and
-conventional c-GC/c-GC* from the pinned authors' Git commit. The notebooks
+conventional c-GC/c-GC* from the pinned authors' Git commit, together with
+CEDAR from Bloomberg's pinned official `causal-ts` Git commit. The notebooks
 reject a missing or different version or source revision instead of searching
 another project's `site-packages` directory. The conventional c-GC extra is
 also responsible for `torch==2.14.1`, which CDT imports without declaring in
@@ -120,7 +125,7 @@ factors within that process rather than separate directory classes.
 The autocorrelated-SCM notebooks use the authors' generator from
 [Debeire et al. (2024)](https://proceedings.mlr.press/v236/debeire24a.html).
 The common comparison arm sets the generator's contemporaneous-link fraction
-to zero so all seven methods are scored on the same positive-lag graph. This
+to zero so all eight methods are scored on the same positive-lag graph. This
 adaptation is stated in the notebook and stored in each dataset's metadata. A
 cross-link-free cell is included to measure false positives directly.
 

@@ -49,7 +49,7 @@ notebooks/
 
 Each dataset directory contains one shared-data preparation notebook and one
 notebook for each of fastC-GC, fastC-GC*, conventional c-GC/c-GC*, PCMCI+,
-Bagged PCMCI+, and CUTS+. Simulation directories are named for their
+Bagged PCMCI+, CEDAR, and CUTS+. Simulation directories are named for their
 data-generating processes; link functions and noise families are recorded as
 experimental factors instead of being split into linear and nonlinear trees.
 See `notebooks/README.md` for the full matrix, dataset-sharing, regeneration,
@@ -126,14 +126,17 @@ uv run python experiments/simulations/nonlinear/benchmark_dependence_backends.py
 Install the comparison dependencies into `fastC-GC/.venv` with:
 
 ```bash
-uv sync --extra dev --extra notebooks --extra comparison --extra conventional-cgc
+uv sync --extra dev --extra notebooks --extra comparison --extra conventional-cgc --extra cedar
 ```
 
 The `notebooks` extra installs the complete IPython kernel environment,
 including Matplotlib's Jupyter backend and IPython's traceback dependencies.
 The remaining extras install the pinned `tigramite==5.2.10.1` distribution used
 by PCMCI+ and Bagged PCMCI+, plus `causalchamber==0.2.8` for the Causal Chambers
-reference graph. They also install conventional c-GC/c-GC* directly from commit
+reference graph. CEDAR is installed directly from commit
+`0d1fae061b2445a51d0c8b75fc565d897dd54fb7` of Bloomberg's official
+`causal-ts` repository. The other Git extra installs conventional c-GC/c-GC*
+directly from commit
 `575ac1dc67a0282a5ca88bc11a2804df052f674d` of the authors' Git repository and
 supply the runtime dependencies omitted from that repository's package
 metadata, including `torch==2.14.1`, which CDT imports but does not declare.
@@ -156,18 +159,21 @@ empirical graph-visualization protocol, statistical comparisons, and failure
 policy are documented in
 `experiments/benchmarks/CAUSAL_COMPARISON_PROTOCOL.md`.
 
-The recent-literature shortlist uses PCMCI+, Bagged PCMCI+, and CUTS+ as the
-headline external CSL comparators. CUTS+ is evaluated on aggregate any-lag
-graphs in a separate frozen PyTorch environment. The 2026 Stationarity-Aware
+The recent-literature shortlist uses PCMCI+, Bagged PCMCI+, CEDAR, and CUTS+ as
+the headline external CSL comparators. CEDAR is evaluated on its final binary
+lag-resolved graph. Its current result object does not expose a complete
+post-pruning edge-confidence matrix, so its AUROC and AUPRC are unavailable.
+CUTS+ is evaluated on aggregate any-lag graphs in a separate frozen PyTorch
+environment. The 2026 Stationarity-Aware
 Discovery method is recorded as pending because its advertised official source
 repository was empty when checked; DYNOTEARS is historical-only rather than a
 headline baseline.
 
 Comparison algorithms are not implemented in this repository. PCMCI+ and
 Bagged PCMCI+ use the pinned official Tigramite distribution installed in the
-notebook environment. Conventional c-GC/c-GC* use the pinned Git distribution
-installed in the same environment. Repository-only methods use their authors'
-unchanged source at a pinned revision.
+notebook environment. CEDAR and conventional c-GC/c-GC* use pinned official
+Git distributions installed in the same environment. Repository-only methods
+use their authors' unchanged source at a pinned revision.
 
 The remaining repository-only method and dataset helpers require these pinned
 author checkouts:
@@ -256,46 +262,42 @@ reconstructs Bagged PCMCI+ directed-edge frequency from its modal-mark summary
 after validating the positive-lag graph alphabet. It also recovers the
 lag-specific c-GC/c-GC* decisions from their archived p-value matrices and
 checks that their logical OR reproduces every saved aggregate graph. The
-calibration limitation of the archived fast-method thresholded metrics is documented in the
-manuscript. A separately labelled thresholded comparison should first validate
-`alpha=0.01, beta=0.005` on independent null or development data, then rerun
-fastC-GC and fastC-GC* to archive their separate marginal and conditional
-p-values. The existing c-GC and c-GC* archives already contain the two
-components and can be rescored without refitting. The source-faithful
-`beta=0.001` arm remains available for score-level comparison.
+source-faithful `beta=0.001` arm exposed the finite complete-shift resolution
+limit. The completed 50-seed null-calibration grid supports
+`alpha=0.01, beta=0.005` for the tested i.i.d. and stationary settings. All
+four graph-truth suites have been rescored with that frozen rule under separate
+`scores-alpha-0p01-beta-0p005/` directories. The source-faithful arm remains
+available for score-level comparison.
 
-The separate validation workflow covers null calibration, ridge sensitivity,
+The completed validation workflow covers null calibration, ridge sensitivity,
 and fitted-lag sensitivity without tuning on the benchmark outcomes. It saves
 the marginal and conditional p-values independently, so the same full fit can
 be scored at each declared beta value:
 
 ```bash
-uv run --python 3.14 python \
-  experiments/validation/run_statistical_validation.py --max-new-fits 25
+python experiments/validation/run_statistical_validation.py
 
-uv run --python 3.14 python \
-  experiments/validation/analyze_statistical_validation.py
+python experiments/validation/analyze_statistical_validation.py
 ```
 
-Rerun the first command to continue from the next unfinished fit. The analysis
-writes a report, statistical appendix, CSV summary, and figure catalog under
-`data/outputs/statistical-validation/analysis/`. A one-seed smoke run verifies
-the workflow but is not evidence for the manuscript; the configured study uses
-50 independent seeds.
+Rerun the first command only if a future run is interrupted; verified fits are
+reused. The completed study contains 2,000 successful fits over 50 independent
+seeds per cell. Its report, statistical appendix, CSV summary, and figure
+catalog are under `data/outputs/statistical-validation/analysis/`.
 
 A separate wall-clock script is limited to the two direct method pairs rather
 than timing unrelated CSL algorithms:
 
 ```bash
-uv run --python 3.14 python \
-  experiments/validation/run_rccp_runtime.py --max-new-cells 1
+python experiments/validation/run_rccp_runtime.py
 ```
 
 This timing workflow requires the `conventional-cgc` extra and is intended for
-the Apple Silicon analysis host. Timing values are not included in the paper
-until every declared cell has completed on one machine.
+the Apple Silicon analysis host. The completed grid contains 32 successful
+method cells and five timed repeats per cell; the manuscript reports these as
+hardware-specific end-to-end measurements.
 
-Every simulation DGP has the same seven method notebooks. Each completed
+Every simulation DGP has the same eight method notebooks. Each completed
 dataset fit has an atomic checkpoint and an unmodified native-output archive.
 Set `MAX_NEW_FITS` in a method notebook for a bounded session, or interrupt the
 current fit and rerun the cell; completed matching checkpoints are skipped. The
@@ -320,5 +322,5 @@ al. (2024) from its pinned repository. Its reference cell and one-factor stress
 cells vary sample count, variable count, autocorrelation, link functions, and
 innovation families; a cross-link-free cell measures false positives. The
 matched comparison disables contemporaneous links and records this departure
-from the source study, because the seven methods do not share a common
+from the source study, because the eight methods do not share a common
 contemporaneous graph output.

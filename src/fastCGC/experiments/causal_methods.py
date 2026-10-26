@@ -128,6 +128,15 @@ METHOD_SPECS: tuple[MethodSpec, ...] = (
         "Run Tigramite's bootstrap aggregation in the comparison notebook.",
     ),
     MethodSpec(
+        "cedar",
+        "CEDAR",
+        "autoregressive constraint-based",
+        "installed-vcs",
+        False,
+        "causalts @ git+https://github.com/bloomberg/causal-ts.git@0d1fae061b2445a51d0c8b75fc565d897dd54fb7",
+        "Run CEDAR from Bloomberg's pinned official CausalTS Git distribution.",
+    ),
+    MethodSpec(
         "cuts-plus",
         "CUTS+",
         "neural Granger / graph neural network",

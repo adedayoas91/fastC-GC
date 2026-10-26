@@ -47,8 +47,8 @@ def test_notebooks_have_a_dedicated_top_level_directory() -> None:
     assert (empirical_root / "causalRivers").is_dir()
     assert not (simulation_root / "linear").exists()
     assert not (simulation_root / "nonlinear").exists()
-    assert len(list(simulation_root.glob("**/*.ipynb"))) == 36
-    assert len(list(empirical_root.glob("**/*.ipynb"))) == 18
+    assert len(list(simulation_root.glob("**/*.ipynb"))) == 40
+    assert len(list(empirical_root.glob("**/*.ipynb"))) == 20
     assert not list((PROJECT_ROOT / "experiments").glob("**/*.ipynb"))
 
 

@@ -30,6 +30,7 @@ METHODS = (
     "cgc-star",
     "pcmci-plus",
     "bagged-pcmci-plus",
+    "cedar",
     "cuts-plus",
 )
 
@@ -41,6 +42,7 @@ EXACT_LAG_METHODS = frozenset(
         "cgc-star",
         "pcmci-plus",
         "bagged-pcmci-plus",
+        "cedar",
     }
 )
 
@@ -262,8 +264,8 @@ def normalize_native_output(
 
     Exact-lag rows are returned only for methods whose native result identifies
     positive lags. Conventional c-GC/c-GC* retain their lag-expanded p-value
-    arrays, whereas CUTS+ remains aggregate-only; the collector never invents
-    a lag assignment.
+    arrays, CEDAR retains its final lag-resolved binary graph, and CUTS+
+    remains aggregate-only; the collector never invents a lag assignment.
     """
 
     if method not in METHODS:
@@ -410,6 +412,36 @@ def normalize_native_output(
             graph_name="most_frequent_links",
             score_name="directed_edge_frequency",
         )
+
+    if method == "cedar":
+        native_shape = (n_variables, n_variables, fit_order + 1)
+        graph = _require_shape(
+            native["cg_tig"],
+            native_shape,
+            name="cg_tig",
+        )
+        unexpected_values = sorted(set(np.unique(graph).tolist()) - {0, 1})
+        if unexpected_values:
+            raise ValueError(
+                "CEDAR cg_tig must be binary; found values "
+                f"{unexpected_values}."
+            )
+        exact_selected = np.transpose(
+            graph[:, :, 1 : fit_order + 1].astype(bool, copy=False),
+            (2, 0, 1),
+        )
+        # CEDAR does not expose a complete post-pruning edge-confidence
+        # matrix. pvalue_matrix contains only Condition-1 p-values and is not
+        # updated by MCI pruning; lag_pvalues describe preliminary screening.
+        # Keeping scores unavailable avoids invalid AUROC/AUPRC estimates.
+        return [
+            NormalizedOutput("exact-lag", exact_selected, None),
+            NormalizedOutput(
+                "aggregate-any-lag",
+                aggregate_lags(exact_selected, binary=True),
+                None,
+            ),
+        ]
 
     graph = _require_shape(native["graph"], aggregate_shape, name="graph").astype(
         float,

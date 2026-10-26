@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tomllib
 
 import numpy as np
@@ -20,8 +21,12 @@ from fastCGC.experiments.notebook_checkpoint import (
     write_npz_checkpoint,
 )
 from fastCGC.experiments.upstream import (
+    CAUSALTS_COMMIT,
+    CAUSALTS_URL,
+    CAUSALTS_VERSION,
     CAUSALIZED_GC_COMMIT,
     CAUSALIZED_GC_URL,
+    load_installed_cedar,
     verify_installed_distribution,
     verify_installed_vcs_distribution,
 )
@@ -116,6 +121,9 @@ def test_notebook_loader_pins_upstream_revision() -> None:
     assert CAUSALIZED_GC_COMMIT == (
         "575ac1dc67a0282a5ca88bc11a2804df052f674d"
     )
+    assert CAUSALTS_URL == "https://github.com/bloomberg/causal-ts.git"
+    assert CAUSALTS_COMMIT == "0d1fae061b2445a51d0c8b75fc565d897dd54fb7"
+    assert CAUSALTS_VERSION == "0.27.0"
 
 
 def test_project_requires_python_314() -> None:
@@ -143,6 +151,9 @@ def test_comparison_extra_pins_installable_upstream_packages() -> None:
         "gc-extension @ git+https://github.com/adedayoas91/causalized-GC.git@575ac1dc67a0282a5ca88bc11a2804df052f674d",
         "numba==0.68.0",
         "torch==2.14.1",
+    }
+    assert set(project["project"]["optional-dependencies"]["cedar"]) == {
+        "causalts @ git+https://github.com/bloomberg/causal-ts.git@0d1fae061b2445a51d0c8b75fc565d897dd54fb7",
     }
 
 
@@ -202,3 +213,56 @@ def test_installed_git_distribution_verifies_pep610_provenance(
     assert revision.root == tmp_path
     assert revision.remote_url == CAUSALIZED_GC_URL
     assert revision.commit == CAUSALIZED_GC_COMMIT
+
+
+def test_cedar_loader_verifies_import_root_and_returns_native_api(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FakeDistribution:
+        def read_text(self, filename: str) -> str | None:
+            assert filename == "direct_url.json"
+            return json.dumps(
+                {
+                    "url": CAUSALTS_URL,
+                    "vcs_info": {
+                        "vcs": "git",
+                        "commit_id": CAUSALTS_COMMIT,
+                    },
+                }
+            )
+
+        def locate_file(self, path: str) -> Path:
+            assert path == ""
+            return tmp_path
+
+    run_cedar = object()
+    parcorr_gpu = type("ParCorrGPU", (), {})
+    modules = {
+        "causalts.cedar.discovery": SimpleNamespace(
+            __file__=tmp_path / "causalts" / "cedar" / "discovery.py",
+            run_cedar=run_cedar,
+        ),
+        "causalts.ci_tests": SimpleNamespace(ParCorrGPU=parcorr_gpu),
+    }
+    monkeypatch.setattr(
+        upstream_module,
+        "installed_distribution",
+        lambda name: FakeDistribution(),
+    )
+    monkeypatch.setattr(
+        upstream_module,
+        "version",
+        lambda name: CAUSALTS_VERSION,
+    )
+    monkeypatch.setattr(
+        upstream_module,
+        "import_module",
+        lambda name: modules[name],
+    )
+
+    observed_run, observed_ci, revision = load_installed_cedar()
+
+    assert observed_run is run_cedar
+    assert observed_ci is parcorr_gpu
+    assert revision.commit == CAUSALTS_COMMIT

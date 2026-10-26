@@ -161,6 +161,51 @@ def test_bagged_pcmci_rejects_nonbinary_positive_lag_marks() -> None:
         )
 
 
+def test_cedar_uses_final_binary_graph_without_invalid_ranking_scores() -> None:
+    graph = np.zeros((3, 3, 3), dtype=np.int8)
+    graph[0, 1, 1] = 1
+    graph[2, 1, 2] = 1
+    # These fields are deliberately contradictory: they are archived for
+    # provenance but do not represent post-pruning edge confidence.
+    pvalues = np.zeros_like(graph, dtype=float)
+    lag_pvalues = np.zeros_like(graph, dtype=float)
+
+    normalized = normalize_native_output(
+        "cedar",
+        {
+            "cg_tig": graph,
+            "pvalue_matrix": pvalues,
+            "lag_pvalues": lag_pvalues,
+        },
+        fit_order=2,
+        n_variables=3,
+    )
+
+    assert [result.estimand for result in normalized] == [
+        "exact-lag",
+        "aggregate-any-lag",
+    ]
+    assert normalized[0].selected[0, 0, 1]
+    assert normalized[0].selected[1, 2, 1]
+    assert normalized[0].scores is None
+    assert normalized[1].selected[0, 1]
+    assert normalized[1].selected[2, 1]
+    assert normalized[1].scores is None
+
+
+def test_cedar_rejects_nonbinary_native_graph() -> None:
+    graph = np.zeros((2, 2, 2), dtype=np.int8)
+    graph[0, 1, 1] = 2
+
+    with pytest.raises(ValueError, match="cg_tig must be binary"):
+        normalize_native_output(
+            "cedar",
+            {"cg_tig": graph},
+            fit_order=1,
+            n_variables=2,
+        )
+
+
 def test_conventional_cgc_recovers_exact_lags_and_cuts_is_aggregate_only() -> None:
     n_variables = 3
     fit_order = 2

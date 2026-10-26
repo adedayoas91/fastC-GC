@@ -76,27 +76,76 @@ def test_study_adapters_use_lag_source_target_orientation() -> None:
         )
         assert result.lag_adjacency.shape == dataset.lag_truth.shape
         assert result.lag_scores.shape == dataset.lag_truth.shape
+        assert result.lag_marginal_pvalues is not None
+        assert result.lag_conditional_pvalues is not None
+        assert result.lag_marginal_pvalues.shape == dataset.lag_truth.shape
+        assert result.lag_conditional_pvalues.shape == dataset.lag_truth.shape
+        np.testing.assert_allclose(
+            result.lag_pvalues,
+            np.maximum(
+                result.lag_marginal_pvalues,
+                result.lag_conditional_pvalues,
+            ),
+        )
+        expected = (
+            (result.lag_marginal_pvalues <= 0.05)
+            & (result.lag_conditional_pvalues <= 0.05)
+        )
+        np.testing.assert_array_equal(result.lag_adjacency, expected)
         assert np.all(np.isfinite(result.lag_scores))
 
 
-def test_method_manifest_keeps_comparison_methods_external() -> None:
+def test_study_adapter_records_nondefault_ridge_and_full_policy() -> None:
+    dataset = simulate_sparse_var(
+        n_variables=3,
+        n_samples=60,
+        order=1,
+        seed=43,
+    )
+
+    result = fit_method(
+        "fast-cgc-star",
+        dataset.series,
+        order=1,
+        alpha=0.05,
+        beta=0.05,
+        ridge=1e-4,
+        evaluation_policy="full",
+        seed=43,
+    )
+
+    assert result.metadata["ridge"] == pytest.approx(1e-4)
+    assert result.metadata["evaluation_policy"] == "full"
+
+
+def test_method_manifest_tracks_upstream_execution_boundaries() -> None:
     by_key = {spec.key: spec for spec in METHOD_SPECS}
 
     assert by_key["fast-cgc"].display_name == "fastC-GC"
     assert by_key["fast-cgc-star"].display_name == "fastC-GC*"
 
     for method in (
-        "published-cgc",
-        "published-cgc-star",
         "var-gc",
         "lasso-var",
-        "pcmci-plus",
-        "bagged-pcmci-plus",
         "cuts-plus",
         "var-lingam",
     ):
         assert by_key[method].track.startswith("external-repository")
         assert not by_key[method].runnable
+
+    for method in ("cgc", "cgc-star"):
+        assert by_key[method].track == "installed-vcs-aggregate"
+        assert by_key[method].dependency.startswith("gc-extension @ git+")
+        assert not by_key[method].runnable
+
+    for method in ("pcmci-plus", "bagged-pcmci-plus"):
+        assert by_key[method].track == "installed-package"
+        assert by_key[method].dependency == "tigramite==5.2.10.1"
+        assert not by_key[method].runnable
+
+    assert by_key["cedar"].track == "installed-vcs"
+    assert by_key["cedar"].dependency.startswith("causalts @ git+")
+    assert not by_key["cedar"].runnable
 
     assert by_key["mssd"].track == "pending-upstream"
     assert not by_key["mssd"].runnable
@@ -114,7 +163,7 @@ def test_external_comparison_method_has_no_local_fitter() -> None:
         seed=19,
     )
 
-    with pytest.raises(NotImplementedError, match="pinned Tigramite checkout"):
+    with pytest.raises(NotImplementedError, match="comparison notebook"):
         fit_method(
             "pcmci-plus",
             dataset.series,
@@ -138,3 +187,22 @@ def test_method_result_rejects_orientation_shape_mismatches() -> None:
         assert "lag_scores" in str(exc)
     else:  # pragma: no cover - protects the validation contract
         raise AssertionError("shape mismatch should fail")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("lag_marginal_pvalues", "lag_conditional_pvalues"),
+)
+def test_method_result_rejects_component_pvalue_shape_mismatches(
+    field: str,
+) -> None:
+    adjacency = np.zeros((1, 3, 3), dtype=bool)
+    arguments = {
+        "method": "broken",
+        "lag_adjacency": adjacency,
+        "lag_scores": np.zeros_like(adjacency, dtype=float),
+        field: np.zeros((3, 3)),
+    }
+
+    with pytest.raises(ValueError, match=field):
+        MethodResult(**arguments)

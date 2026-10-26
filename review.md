@@ -5,11 +5,11 @@
 This review covers the claims, proofs, agreement with the current implementation,
 citation support, and manuscript writing in `../manuscript/`. The reported
 stored graph-recovery values were treated as accepted results, as requested; I
-did not re-adjudicate whether those values are scientifically “good.” Policy,
-ridge, and null experiments were executed and analyzed during the revision.
-Earlier runtime and memory measurements are retained only as historical
-artifacts and are not part of the current paper or comparison plan. I checked
-claims about how the estimator and its tests operate.
+did not re-adjudicate whether those values are scientifically “good.” The
+benchmark-specific calibration, ridge, maximum-lag, and direct-pair runtime
+studies have now been completed. Earlier runtime and memory measurements remain
+historical artifacts and are distinct from the current single-thread grid. I
+checked claims about how the estimator and its tests operate.
 
 Evidence inspected:
 
@@ -17,10 +17,28 @@ Evidence inspected:
 - the correlation-profile estimator, conditioning plan, fit context, and
   linear dependence backend in `src/fastCGC/`;
 - the current automated tests and stored experiment metadata;
-- the original sources behind all eight bibliography entries; and
+- the original sources behind the bibliography entries; and
 - a clean out-of-tree Tectonic build of the manuscript.
 
-## Post-revision verification (18 October 2026)
+## Comments triage and action status (25 October 2026)
+
+The latest comments separate into manuscript clarifications, analyses that need
+new fits, and longer-term method development.
+
+| Class | Item | Current status |
+|---|---|---|
+| Statement only | State that the fixed ridge is a numerical default rather than a tuned optimum; distinguish analytic diagnostics from shift decisions; identify full/short-circuit as an execution policy; repeat the present-time-sink limitation for measured data. | Added to the manuscript. |
+| Literature context | Discuss dimension-reduced GC, CEDAR, variable-lag GC, and time-reversed GC without presenting them as completed comparisons. | Added with verified primary citations. Generic CI accelerators were omitted because they are not complete time-series graph learners. |
+| Requires new fits | Calibrate the complete-shift test on i.i.d., stationary autoregressive, and drifting nulls; examine the ridge grid and fitted maximum lag; then freeze and apply the selected threshold to all four c-GC variants. | Completed: 2,000/2,000 fits succeeded, `beta=0.005` was frozen for the tested i.i.d./stationary settings, and all four graph-truth suites were rescored without failures. |
+| Requires the Apple-silicon host | Compare wall-clock time only within the two direct pairs, fastC-GC versus c-GC and fastC-GC* versus c-GC*. | Completed: 32/32 method cells and 160 timed measurements succeeded on the Apple M5 Max host. The manuscript reports bounded, hardware-specific end-to-end ratios. |
+| Deferred method work | Adaptive or vanishing ridge theory, a dual Woodbury path, selected-entry Schur updates, parametric correction when shift invariance fails, and integration with variable-lag or time-reversal filters. | Not part of this revision. Each changes the estimator, proof obligations, or experimental estimand and needs a separate study. |
+
+The calibration runner deliberately uses full evaluation. A short-circuit fit
+does not test every conditional pair and therefore cannot be rethresholded from
+its archive. Existing fast-method archives contain only the joint ranking value
+and must be rerun; the revised schema preserves both component p-values.
+
+## Post-revision verification (24 October 2026)
 
 The three blocking findings from the initial review have been resolved, and the
 remaining experimental recommendations that were suitable for the current
@@ -30,15 +48,15 @@ codebase have been executed rather than left as proposed work.
 |---|---|---|
 | Inactive conditional-screen claim | The manuscript now describes the precision-derived quantity as an analytic diagnostic. The public attributes are `analytic_score_` and `analytic_pvalue_`; the former `screen_*` names remain documented compatibility aliases. `screen_alpha` is explicitly a legacy no-op for the linear profile. | Regression tests compare `screen_alpha=0` and `1`, require full-policy shift provenance, and check full/short-circuit equivalence at fitted thresholds. |
 | Fixed-ridge statistic overclaimed as a Gaussian conditional-independence test | The adjacency theorem is stated only for population-level conditional independence. The Gaussian common-cause counterexample is proved, tested from exact sample moments, and reported over a ridge grid. | The empirical residual correlations agree with the counterexample formula to a maximum absolute error of (2.3\times10^{-15}). |
-| Package and test route not reproducible | The project now uses the standard `src/fastCGC/` layout, keeps estimator implementations in `fastCGC.core`, exposes a stable public namespace, and uses that namespace in tests, scripts, and notebooks. | 95 tests pass directly, both source and wheel distributions build, and an unpacked-wheel fit succeeds from outside the repository. |
-| No controlled runtime or memory evidence | Superseded by the decision to exclude runtime, memory, hardware, and accelerator rankings from the study. | The active cross-method runner and notebooks record scientific outputs and provenance, not timing or memory endpoints. Older measurements under `data/outputs/linear-methodology/` are historical only. |
+| Package and test route not reproducible | The project now uses the standard `src/fastCGC/` layout, keeps estimator implementations in `fastCGC.core`, exposes a stable public namespace, and uses that namespace in tests, scripts, and notebooks. | The current suite passes all 137 tests, both source and wheel distributions build, and an unpacked-wheel fit succeeds from outside the repository. |
+| No controlled runtime or memory evidence | A narrow wall-clock comparison was later authorized for the two direct algorithm pairs; memory remains outside scope. | The fresh-process, single-thread grid completed 32 method cells with five timed repeats each. Older measurements under `data/outputs/linear-methodology/` remain historical only. |
 | No policy or ridge ablation | Full/short-circuit and ridge-grid studies were added, including sparse, dense, regular, and near-collinear regimes. | 64 policy rows and 200 ridge rows were analyzed. All paired policy decisions and graph supports agree at the fitted thresholds. |
 | No calibration or graph-wide null evidence | Selected-pair IID and AR(1) null studies and a graph-wide AR(1) null study were added. | 1,000 selected-pair datasets and 200 graph-level datasets are stored with Wilson intervals, discrete-orbit binomial tests, and Holm adjustment. |
 
 The earlier analysis bundle remains in
 `data/outputs/linear-methodology/analysis/` for provenance. Its runtime and
 memory material is not used by the current manuscript. The policy, ridge, and
-null records remain relevant to implementation diagnostics, while the planned
+null records remain relevant to implementation diagnostics. The completed
 causal-structure comparison is governed by
 `experiments/benchmarks/CAUSAL_COMPARISON_PROTOCOL.md`.
 
@@ -53,11 +71,12 @@ graph-theoretic population-level adjacency theorem check out under their stated
 assumptions. The new experiments support only the bounded empirical claims now
 made in the manuscript, and limitations are stated where the evidence stops.
 
-The paper can move to final empirical validation. The proofs and implementation
-claims have no remaining correctness blocker. The paper is framed as a
-vectorized reimplementation of published c-GC/c-GC*, without a runtime or
-memory claim. The open comparison concerns graph-recovery efficacy and paired
-output agreement, not computing speed.
+The proofs and implementation claims have no remaining correctness blocker.
+The paper presents fastC-GC and fastC-GC* as standalone algorithms that use the
+RCCP decision rule and the c-GC/c-GC* conditioning sets, without claiming
+output equivalence. The completed comparison reports score agreement,
+calibrated graph recovery, sensitivity analyses, and hardware-specific runtime
+for the direct algorithm pairs.
 
 ## Findings and their resolution
 
@@ -214,7 +233,7 @@ only the linear numerical identities, say “16 collected cases in
 `test_fast_causalised_gc.py`” rather than referring ambiguously to the now much
 larger suite.
 
-**Resolution.** The linear module now has 23 cases and the full suite has 66.
+**Resolution.** The linear module now has 23 cases and the full suite has 137.
 The manuscript reports both counts. The documented command is
 `uv run --extra dev pytest`; it succeeds without a temporary alias. Package
 build and isolated-wheel smoke tests also succeed.
@@ -367,15 +386,15 @@ Particularly good choices to preserve:
 - “complete” and “exact” are carefully limited to orbit enumeration;
 - the smooth disturbance is not mislabeled as latent confounding;
 - descriptive comparisons are not presented as prespecified hypothesis tests;
-- the scope of the new timing, memory, calibration, and graph-wide null evidence
-  is stated plainly; and
+- the scope of the score-level, recovery, calibration, and graph-wide null
+  evidence is stated plainly; and
 - the Conclusion introduces no new empirical evidence.
 
 Final writing observations:
 
-- The abstract now gives the population-level nature of the causal result in one unambiguous
-  clause and distinguishes the graph-recovery, runtime, selected-pair, and
-  graph-wide evidence.
+- The abstract gives the population-level nature of the causal result in one
+  unambiguous clause and distinguishes score-level agreement, graph recovery,
+  and the finite-resolution calibration finding.
 - Avoid switching among “result,” “decision value,” “test,” and “p-value” unless
   the distinction is intentional. `pvalue_source_` is useful precisely because
   not every stored quantity is calibrated; state that contract once and reuse
@@ -387,29 +406,35 @@ Final writing observations:
 
 - `uv run --extra dev python -m compileall -q src/fastCGC experiments tests`: passed
   under CPython 3.14.7.
-- `uv run --extra dev pytest -q`: 95 passed under CPython 3.14.7, including 23
-  cases in `tests/test_fast_causalised_gc.py`.
+- `uv run --python 3.14 python -m pytest -q`: 137 passed under
+  CPython 3.14.7, including 23 cases in
+  `tests/test_fast_causalised_gc.py` and the Bagged PCMCI+ score-reconstruction
+  regressions.
 - Package-layout checks confirm that `src/fastCGC/core/`, `dependence/`, and
   `experiments/` are included in the wheel. Canonical and compatibility imports
   resolve to the same estimator classes, and the obsolete dynamic loader and
   hyphenated module are absent.
-- Causal-comparison boundary check: 26 focused tests passed. An efficacy-only
+- Current validation/scoring boundary check: 44 focused tests passed. An efficacy-only
   smoke run wrote two method rows with structural and ranking metrics and no
   elapsed-time, memory, or hardware fields.
-- The project now requires CPython 3.14. The ten simulation notebooks live in
-  the top-level `notebooks/` directory and include Python and package versions
-  in a software fingerprint while leaving hardware out of the comparison
+- The project now requires CPython 3.14. The dataset-first matrix contains 36
+  simulated or in-silico notebooks and 18 empirical notebooks. They record
+  Python and package versions while leaving hardware out of the comparison
   contract. Existing Intel/Python 3.13 results remain historical artifacts.
-- The published c-GC checkout and its environment are deliberately excluded
-  from this repository. The notebook loader pins and verifies the upstream URL
-  and commit, while each run records the external environment and platform.
-  Native import and fit smoke tests must still be run on the M5 machine before
-  full experiments begin.
+- Conventional c-GC is configured as a pinned Git dependency rather than kept
+  as a project checkout. The notebook loader verifies its PEP 610 URL and
+  commit, while each run records the environment and platform. The current
+  Intel host cannot install the pinned PyTorch 3.14 wheel; this extra is intended
+  for the Apple-silicon analysis host.
+- PCMCI+ and Bagged PCMCI+ now import the pinned official Tigramite
+  distribution from the active virtual environment. The Causal Chambers
+  preparation notebook likewise uses the installed `causalchamber` package;
+  neither requires a source checkout.
 - Conventional c-GC/c-GC* notebooks now load `GcStar` from the authors'
-  repository at commit
+  installed Git distribution at commit
   `575ac1dc67a0282a5ca88bc11a2804df052f674d`. Their shared datasets are
   hash-verified, their native arrays are preserved, and completed fits resume
-  from provenance-checked checkpoints. No published estimator code is copied
+  from provenance-checked checkpoints. No conventional estimator code is copied
   into this repository.
 - `uv build`: produced both `fastcgc-0.1.0.tar.gz` and
   `fastcgc-0.1.0-py3-none-any.whl`.
@@ -419,61 +444,62 @@ Final writing observations:
   counterexample rows, 1,000 selected-pair null rows, and 200 graph-wide null
   rows. Older runtime and memory records remain historical and are not evidence
   for the current manuscript.
-- `tectonic main.tex`: passed after the framing revision; generated a 15-page
-  PDF with no LaTeX warning in the final run.
+- Empirical data smoke checks created one Causal Chambers bundle and ten
+  CausalRivers bundles from hash-verified official archives in a temporary
+  workspace. The collector also produced edge/status tables and PDF/PNG graph
+  panels without requiring a truth graph.
+- `tectonic main.tex`: passed after the framing revision and generated a
+  14-page PDF. The build retains non-fatal underfull-box warnings and the
+  template's existing overfull abstract/keyword line warning.
 
-## Remaining empirical work and extensions
+## Completed comparison and remaining work
 
-1. **Run the definitive published-versus-vectorized paired comparison.**
-   Pair the pinned authors' c-GC code with fastC-GC and the pinned c-GC* mode
-   with fastC-GC* on identical hash-verified datasets. Report the prespecified
-   graph-recovery metrics, exact-lag agreement at order one, aggregate graph
-   agreement at every order, and traceable score or decision-value
-   disagreements. Because the published and vectorized implementations differ
-   in standardization, ridge regularization, and shift enumeration, exact
-   numerical equality is not assumed. Runtime, memory, hardware, and
-   accelerator rankings are outside this comparison.
-2. **Comparison study now specified and updated from recent literature (20
-   October 2026).** The headline external CSL methods are PCMCI+, Bagged PCMCI+,
-   and CUTS+. None is implemented in this repository. Published c-GC/c-GC* and
-   every external CSL or classical control are run from pinned author or
-   upstream repositories in separate environments. The local runner evaluates
-   only fastC-GC/fastC-GC* and exports method-neutral datasets with hashes
-   and truth arrays. CUTS+ belongs in the any-lag aggregate table because its
-   official implementation returns an aggregate variable graph. The 2026
-   AISTATS Stationarity-Aware Discovery method is the newest same-estimand
-   candidate found, but its advertised official repository was empty when
-   checked, so it is pending. DYNOTEARS is historical-only, not a
-   state-of-the-art headline comparator. LPCMCI remains in a separate PAG
-   track. The prospective protocol and local runner are in
-   `experiments/benchmarks/CAUSAL_COMPARISON_PROTOCOL.md` and
-   `experiments/benchmarks/benchmark_causal_methods.py`. Exact positive-lag
-   recovery is primary for lag-resolved methods; any-lag recovery is the common
-   cross-family endpoint for CUTS+ and is reported separately. Self-lags also
-   remain separate. Metrics include AUPRC (primary ranking metric), AUROC
-   (secondary), precision, recall, F1, MCC, specificity, balanced accuracy, FPR,
-   FDR, normalized SHD, false positives per target, success rate, failure-aware
-   F1, and failure-aware summaries. AUROC/AUPRC are computed only from
-   continuous scores or a prespecified threshold path, never from one binary
-   adjacency. The comparison deliberately excludes elapsed time, memory use,
-   hardware rankings, and accelerator comparisons. Comparative manuscript
-   claims remain pending until held-out seeds and the paired analysis are run.
-3. Extend null calibration to the notebook threshold \(\beta=0.001\). The
-   current 500-dataset regimes are intentionally reported only at 0.01 and
-   0.05; a substantially larger independent run is needed at 0.001.
-4. Specify and evaluate a graph-wide multiplicity procedure rather than relying
-   on fixed edgewise thresholds. The present graph-wide null quantifies the
-   unadjusted rule but does not change it.
-5. Add external-validity regimes with shared latent causes, nonlinear links,
-   heavy-tailed innovations, abrupt changes, and missing observations.
-6. If an estimator-level causal consistency result is desired, supply a formal
-   vanishing-ridge and shift-validity argument. The current manuscript correctly
-   limits its theorem to a population-level conditional-independence statement.
-7. Reduce the dense per-signature Schur cache only if memory use later becomes
-   a separate implementation objective; it is not part of the current study.
+The comparison produced 3516 hash-verified datasets and 24,612 successful
+method--dataset fits. The analysis includes conventional c-GC/c-GC*,
+fastC-GC/fastC-GC*, PCMCI+, Bagged PCMCI+, and CUTS+. Controlled and in-silico
+results use paired recovery metrics; the Causal Chambers and CausalRivers
+outputs remain descriptive graph comparisons because their supplied networks
+are not treated as exhaustive lag-resolved truth. The direct-pair runtime grid
+is included; memory and accelerator rankings remain outside the study.
 
-Items 3--7 are extensions and are not needed for the claims currently made.
-Items 1 and 2 remain required before making comparative efficacy or agreement
-claims. They use pinned source, identical datasets, and paired analysis. The
-manuscript makes no speed or memory claim, and none should be inferred from the
-algebraic proofs or from the `fastC-` name.
+Two findings changed how the archived metrics are interpreted:
+
+1. **The fast-method threshold required recalibration.** Complete circular
+   shifts have minimum p-value `1/n_effective`. Across the four scored suites,
+   the largest floor is `1/245 = 0.00408`, so the source-faithful
+   `beta=0.001` rule cannot select an edge. The 50-seed independent null grid
+   supported `alpha=0.01, beta=0.005` for the tested i.i.d. and stationary
+   settings. That rule was frozen and applied to all four graph-truth suites;
+   the manuscript now reports calibrated F1, MCC, and SHD. The drifting-null
+   and graph-familywise results delimit the claim. Repeating the complete orbit
+   does not improve its resolution; an analytic or randomized p-value would
+   define a different procedure.
+2. **Bagged PCMCI+ ranking scores were recovered without refitting.** Tigramite
+   saved the frequency of the modal graph mark rather than the directed-edge
+   frequency. The pinned positive-lag output uses only no edge and `-->`, and
+   the archive contains no other positive-lag modal mark. Directed-edge
+   frequency is therefore the modal frequency when `-->` is modal and its
+   complement when no edge is modal. The collector now validates this binary
+   contract and rejects an unexpected mark. Under this checked condition, the
+   reconstructed scores support AUROC and AUPRC. If a later configuration can
+   emit other positive-lag marks, it must save the full bootstrap graph stack.
+
+The c-GC/c-GC* exact-lag comparison was also recovered without refitting. Their
+native archives retain the lag-expanded marginal and conditional p-value
+matrices. Applying the recorded thresholds at each lag reproduced every saved
+aggregate graph across 7032 outputs with zero edge mismatches, so the same
+arrays support exact-lag scoring.
+
+The remaining extensions are not required for the claims in the paper:
+
+- specify and evaluate a graph-wide multiplicity procedure rather than relying
+  only on fixed edgewise thresholds;
+- add regimes with shared latent causes, heavy-tailed innovations, abrupt
+  changes, and missing observations;
+- derive a vanishing-ridge and shift-validity argument before making an
+  estimator-level causal-consistency claim; and
+- reduce the dense per-signature Schur cache only if memory becomes a separate
+  implementation objective.
+
+The manuscript makes no speed or memory claim, and neither should be inferred
+from the algebraic proofs or from the `fastC-` name.

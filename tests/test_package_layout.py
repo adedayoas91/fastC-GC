@@ -35,11 +35,20 @@ def test_package_uses_standard_src_layout() -> None:
 
 
 def test_notebooks_have_a_dedicated_top_level_directory() -> None:
-    notebook_root = PROJECT_ROOT / "notebooks" / "simulations"
+    notebook_root = PROJECT_ROOT / "notebooks"
+    simulation_root = notebook_root / "simulations"
+    empirical_root = notebook_root / "empirical"
 
-    assert (notebook_root / "linear").is_dir()
-    assert (notebook_root / "nonlinear").is_dir()
-    assert len(list(notebook_root.glob("**/*.ipynb"))) == 10
+    assert (simulation_root / "sparseVAR").is_dir()
+    assert (simulation_root / "lorenz96").is_dir()
+    assert (simulation_root / "autocorrelatedSCM").is_dir()
+    assert (simulation_root / "dream3").is_dir()
+    assert (empirical_root / "causalChamber").is_dir()
+    assert (empirical_root / "causalRivers").is_dir()
+    assert not (simulation_root / "linear").exists()
+    assert not (simulation_root / "nonlinear").exists()
+    assert len(list(simulation_root.glob("**/*.ipynb"))) == 40
+    assert len(list(empirical_root.glob("**/*.ipynb"))) == 20
     assert not list((PROJECT_ROOT / "experiments").glob("**/*.ipynb"))
 
 

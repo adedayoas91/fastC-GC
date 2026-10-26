@@ -1,34 +1,44 @@
 # Causal-structure comparison protocol
 
-## Purpose and current status
+## Purpose and study status
 
 This protocol governs the comparison of fastC-GC and fastC-GC* with the
-published c-GC/c-GC* procedures and established time-series causal-structure
-methods. It is a prospective protocol, not a results section. Pilot runs may be
-used to find software or data-generation errors, but confirmatory settings must
-be frozen before held-out seeds are run. Comparative claims should enter the
-manuscript only after the held-out analysis is complete.
+conventional c-GC/c-GC* procedures and established time-series causal-structure
+methods. The original seven-method comparison is complete: 3516 shared
+datasets produced 24,612 successful method--dataset fits. CEDAR has since been
+added as an eighth, separately executable comparison arm; its results remain
+pending until its notebooks and collectors are run. This document retains the
+frozen estimands, method boundaries, and analysis rules used to interpret the
+recorded outputs. Development runs may be used to identify software or
+data-generation errors, but settings for any additional confirmatory arm must
+be frozen before its test datasets are analyzed.
 
 The local benchmark runner is `benchmark_causal_methods.py`. It writes the
 shared datasets and their truth arrays, then evaluates only fastC-GC and
-fastC-GC*. Every comparison method, including published c-GC/c-GC*, is run
-from a pinned checkout of its authors' repository. No comparison estimator is
-reimplemented in this repository.
+fastC-GC*. Every comparison method, including conventional c-GC/c-GC*, is run
+from either a pinned official distribution or a pinned checkout of its
+authors' repository. No comparison estimator is reimplemented in this
+repository.
 
 ## Methods
 
 There is no defensible single state-of-the-art method across all time-series
 causal-discovery regimes. The 2025 CausalDynamics benchmark reports substantial
-changes in method ranking across linear, nonlinear, noisy, confounded, and
-lagged systems. The shortlist therefore uses recent evidence and complementary
-assumptions rather than venue date alone.
+changes in method ranking across its data-generating regimes. The shortlist
+therefore uses recent evidence and complementary assumptions rather than venue
+date alone.
 
-The three headline external comparators are PCMCI+, Bagged PCMCI+, and CUTS+.
+The headline external comparators are PCMCI+, Bagged PCMCI+, CEDAR, and CUTS+.
 PCMCI+ provides a maintained, lag-resolved constraint-based reference. Bagged
 PCMCI+ is the 2024 bootstrap-aggregation extension, which improved precision and
 recall over PCMCI+ in the reported difficult regimes. CUTS+ is the recent neural
 comparator selected for its high-dimensional and irregular-sampling results in
 the 2024 paper and CausalTime benchmark.
+CEDAR supplies a recent autoregressive, lag-resolved constraint-based method
+whose official CausalTS implementation supports the project's Python 3.14
+environment. Its final binary graph is directly scoreable, but its public
+result does not contain a complete post-pruning confidence value for every
+candidate edge; AUROC and AUPRC are therefore unavailable for CEDAR.
 These methods do not all return the same graph object, so they are not forced
 into one leaderboard. Their repositories remain unchanged; method-specific
 post-processing is limited to converting saved native outputs into the declared
@@ -49,23 +59,24 @@ the same graph outside this controlled setting.
 
 | Method | Family | Main role | Benchmark status |
 |---|---|---|---|
-| Published c-GC | two-test, constraint-based | Conventional reference procedure | Authors' `causalized-GC` checkout at `575ac1dc67a0282a5ca88bc11a2804df052f674d` |
-| Published c-GC* | two-test, constraint-based | Conventional full-conditioning reference | Same pinned checkout; native `fcgc` mode |
+| c-GC | two-test, constraint-based | Conventional reference procedure | Installed Git distribution from authors' `causalized-GC` commit `575ac1dc67a0282a5ca88bc11a2804df052f674d` |
+| c-GC* | two-test, constraint-based | Conventional full-conditioning reference | Same pinned Git distribution; native `fcgc` mode |
 | fastC-GC | two-test, constraint-based | Vectorized c-GC, correlation profile | Local study-method runner |
 | fastC-GC* | two-test, constraint-based | Vectorized full-conditioning c-GC*, correlation profile | Local study-method runner |
 | Full VAR-GC | regression and coefficient testing | Classical linear predictive baseline | Pinned upstream implementation; no local estimator code |
 | Lasso-VAR | penalized regression | Optional sparse linear control | Pinned upstream implementation; no local estimator code |
-| PCMCI+ with ParCorr | constraint-based | Autocorrelation-aware causal discovery | Pinned Tigramite checkout; positive lags only in the exact-lag track |
-| Bagged PCMCI+ with ParCorr | bootstrap-aggregated constraint-based | Recent lag-resolved comparator | Pinned Tigramite checkout using its native bootstrap routine |
+| PCMCI+ with ParCorr | constraint-based | Autocorrelation-aware causal discovery | Installed `tigramite==5.2.10.1`; positive lags only in the exact-lag track |
+| Bagged PCMCI+ with ParCorr | bootstrap-aggregated constraint-based | Recent lag-resolved comparator | Installed `tigramite==5.2.10.1` using its native bootstrap routine |
+| CEDAR with ParCorrGPU | autoregressive constraint-based | Recent lag-resolved comparator | Installed official `causalts==0.27.0` Git distribution at commit `0d1fae061b2445a51d0c8b75fc565d897dd54fb7` |
 | CUTS+ | neural Granger / graph neural network | Recent high-dimensional neural comparator | Authors' pinned UNN checkout; aggregate variable graph only |
 | Stationarity-Aware Discovery (MSSD) | constraint-based minimal separating sets | Newest same-estimand candidate | Pending; advertised official repository was empty on 20 October 2026 |
 | VAR-LiNGAM | non-Gaussian functional model | Directional non-Gaussian baseline | Pinned authors' checkout; primary interpretation on Laplace-innovation data |
 | DYNOTEARS | continuous score-based | Historical sensitivity analysis | Not a headline comparator; discontinued canonical CausalNex implementation requires a frozen legacy environment |
 | LPCMCI with ParCorr | latent-variable constraint-based | Hidden-common-cause stress test | Separate PAG track; not ranked as a fully directed DAG |
 
-PCMCI may be included as a historical secondary baseline. Nonlinear PCMCI+
-variants, such as GPDC or CMIknn, belong in a nonlinear extension rather than
-the main linear comparison. Static PC or GES on raw observations are excluded:
+PCMCI may be included as a historical secondary baseline. Alternative PCMCI+
+conditional-independence tests, such as GPDC or CMIknn, may be added in a
+separately labelled sensitivity analysis. Static PC or GES on raw observations are excluded:
 without an explicit lag expansion they solve an IID graph problem, not the
 positive-lag time-series problem. Lag-expanded PC/GES may be reported as a
 sensitivity analysis if time order is enforced and overlapping-window
@@ -85,23 +96,28 @@ Primary records:
 - classical Granger causality: [Granger (1969)](https://doi.org/10.2307/1912791)
 - PCMCI+: [Runge (2020)](https://proceedings.mlr.press/v124/runge20a.html) and [Tigramite documentation](https://jakobrunge.github.io/tigramite/)
 - Bagged PCMCI+: [Debeire et al. (2024)](https://proceedings.mlr.press/v236/debeire24a.html)
+- CEDAR: [Fesanghary (2026)](https://arxiv.org/abs/2607.20696) and [official CausalTS source](https://github.com/bloomberg/causal-ts)
 - CUTS+: [Cheng et al. (2024)](https://ojs.aaai.org/index.php/AAAI/article/view/29034) and [authors' source](https://github.com/jarrycyx/UNN)
 - Stationarity-Aware Discovery: [Gao et al. (2026)](https://proceedings.mlr.press/v300/gao26a.html) and [advertised source repository](https://github.com/CausalML-Lab/StationarityAwareDiscovery)
 - recent cross-method evidence: [CausalTime (ICLR 2024)](https://proceedings.iclr.cc/paper_files/paper/2024/hash/0c79d6ed1788653643a1ac67b6ea32a7-Abstract-Conference.html) and [CausalDynamics (NeurIPS 2025)](https://proceedings.neurips.cc/paper_files/paper/2025/hash/39a3f7dc00e4723a5ca7808b04fc4d4f-Abstract-Datasets_and_Benchmarks_Track.html)
+- empirical time-series data: [Causal Chambers (Nature Machine Intelligence, 2025)](https://doi.org/10.1038/s42256-024-00964-x) and [CausalRivers (ICLR 2025)](https://proceedings.iclr.cc/paper_files/paper/2025/hash/a205fda871b0f6c1e18a7ad7325eb6cf-Abstract-Conference.html)
+- DREAM3 in-silico challenge: [Prill et al. (2010)](https://doi.org/10.1371/journal.pone.0009202)
 - VAR-LiNGAM: [Hyvärinen et al. (2010)](https://www.jmlr.org/papers/v11/hyvarinen10a.html) and [official API](https://lingam.readthedocs.io/en/stable/reference/var_lingam.html)
 - DYNOTEARS, historical only: [Pamfil et al. (2020)](https://proceedings.mlr.press/v108/pamfil20a.html)
 - LPCMCI: [Gerhardus and Runge (2020)](https://proceedings.neurips.cc/paper_files/paper/2020/hash/94e70705efae423efda1088614128d0b-Abstract.html)
 
-## External repository policy
+## Upstream software policy
 
 For every comparison method:
 
-1. clone the repository named in the method table and record its remote URL and
-   exact commit hash;
-2. create an isolated environment from that repository's dependency files, or
-   from a recorded compatibility lock when those files target a different
-   architecture or unsupported Python release; the lock may update
-   dependencies but must not change the estimator source;
+1. install the exact official distribution recorded in the method table when
+   one is available; otherwise clone the named repository and record its remote
+   URL and exact commit hash;
+2. use the project environment for compatible distributions. Create an
+   isolated environment from a repository's dependency files when its pinned
+   requirements target a different architecture or unsupported Python release;
+   a compatibility lock may update dependencies but must not change estimator
+   source;
 3. run the repository's native entry point on the exported `.npz` dataset, or
    on a lossless CSV copy if that is the repository's supported input;
 4. preserve the command, standard output, standard error, software versions,
@@ -111,13 +127,19 @@ For every comparison method:
    when required, but it must not fit a model, apply a new statistical test, or
    infer missing scores.
 
-For published c-GC/c-GC*, the notebook imports `GcStar` from the pinned
-`src/d_CSL.py`; it does not import the local `FastGcStar` under another
-name. The upstream connectivity method combines positive lags with a logical
-OR. Its output is therefore an exact-lag result only when the fitted order is
-one. For larger orders it is evaluated in the aggregate any-lag table. The
-lag-specific upstream p-value arrays are retained as native output but are not
-re-thresholded locally to construct a different estimator.
+For conventional c-GC/c-GC*, the notebook imports `GcStar` from the installed
+`d_CSL` module after verifying the distribution's Git URL and commit; it does
+not import the local `FastGcStar` under another name. The upstream connectivity
+method combines positive lags with a logical OR. Its output is therefore an
+aggregate any-lag graph, but the native marginal and conditional p-value arrays
+retain each positive lag. The collector applies the recorded `alpha` and `beta`
+to those arrays using the same conjunction as the upstream connectivity method,
+then verifies that their logical OR exactly reproduces the saved aggregate
+matrix. This checked conversion supports both exact-lag and aggregate scoring
+without changing the estimator. CEDAR's `cg_tig[cause, effect, lag]` graph is
+converted by moving the positive-lag axis to the front. Its preliminary
+lag-screening p-values and partial Condition-1 p-value matrix are retained but
+not treated as final edge-confidence rankings. CUTS+ remains aggregate-only.
 
 If an upstream repository cannot ingest the common dataset without changing its
 estimator, use its native generator with matched dimensions, sample size, lag,
@@ -126,14 +148,28 @@ analysis and are not mixed with the paired common-dataset table.
 
 ## Shared notebook datasets
 
-The scenario notebooks use one saved bundle per `(scenario, trial_id)`.
-Generation uses the declared master seed plus the trial identifier. The bundle
-contains the series, aggregate coefficient matrix, lag-resolved coefficients,
-and canonical `lag, source, target` truth. Its adjacent JSON file records the
-generator, full generation settings, array layouts, effective seed, and SHA-256
-digest.
+The cross-method notebooks are organized first by data source. Controlled and
+in-silico data are under `notebooks/simulations/`: sparse VAR, Lorenz--96, the
+autocorrelated structural causal process, and DREAM3. DREAM3 is generated in
+silico with GeneNetWeaver and is not classified as a real-world dataset.
+Measured data are under `notebooks/empirical/causalChamber/` and
+`notebooks/empirical/causalRivers/`. Every directory contains one preparation
+notebook and one notebook for each of the eight runnable methods. Simulation
+directories end with a scoring notebook; empirical directories end with an
+edge-collection and graph-visualization notebook. All method notebooks in a
+directory consume the same saved bundles and never generate method-specific
+observations.
 
-The first notebook that requests an absent bundle creates it atomically.
+Each preparation notebook uses one saved bundle per data-generating setting,
+seed, measured run, or measured subgraph. A controlled or in-silico bundle
+contains the series and either exact lag-resolved truth or the declared
+aggregate graph. An empirical bundle contains the series and may include a
+separately labelled physical or constructed reference network. Its adjacent
+JSON file records the source, preparation settings, array layouts, identifiers,
+and SHA-256 digest.
+
+The first notebook that requests an absent bundle writes its data and metadata
+through atomic file replacement.
 Subsequent notebooks load it and verify its digest and generation settings.
 They fail on a missing metadata file, corruption, or a conflicting seed/range
 request instead of overwriting the dataset. Thus every CSL method sees the same
@@ -150,6 +186,9 @@ data object prevents an orientation error from being hidden in method-specific
 scoring code.
 
 - Exact-lag recovery is primary among methods that return lag-resolved graphs.
+- CEDAR uses its documented default `multi_lag_keep="first"`. It may screen
+  several lags for a pair but stops after the first accepted cross-lag, so its
+  exact-lag recall must be interpreted with that one-lag-per-pair limitation.
 - Any-lag aggregate recovery is the common cross-family endpoint when CUTS+ is
   included. It is reported in a separate table and never presented as evidence
   of exact-lag recovery.
@@ -171,16 +210,90 @@ spectral radius no larger than 0.8. The initial confirmatory grid is:
 - innovations: Gaussian and variance-matched Laplace;
 - at least 50 paired seeds per cell.
 
-The Gaussian track is the main linear comparison. The Laplace track is also the
-primary assumption-matched track for VAR-LiNGAM. Later extensions should add
-nonlinear links, contemporaneous effects, shared latent causes, heavy tails,
-structural breaks, and missing observations one factor at a time. Known lag
-order and lag-order selection must be reported separately.
+The Gaussian-innovation, identity-link cells are the sparse-VAR reference.
+Laplace innovations test sensitivity to the innovation distribution and are
+also the assumption-matched cells for VAR-LiNGAM. Known lag order and lag-order
+selection must be reported separately.
 
-## Metrics
+The second controlled family adopts the additive autocorrelated structural
+causal process from Debeire et al. (2024):
+
+```text
+X_t^j = a_j X_{t-1}^j + sum_i c_i f_i(X_{t-tau_i}^i) + eta_t^j.
+```
+
+The implementation calls `generate_random_contemp_model` and
+`generate_nonlinear_contemp_timeseries` from the pinned authors' repository at
+`8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9`; the generator is not copied into
+this repository. The reference cell uses 10 variables, 500 observations,
+maximum lag 5, maximum autoregressive coefficient 0.6, identity link functions,
+Gaussian innovations, and `floor(1.5 N)` cross-links. One-factor cells vary the
+variable count (5 or 20), observation count (250 or 1,000), maximum
+autoregressive coefficient (0.2 or 0.95), link-function set, or innovation
+family. A cross-link-free cell estimates false-positive behavior when the
+cross-variable graph is empty. Each cell has 50 requested seeds. Coefficients,
+innovation scales, accepted model seeds, and stationarity rejections are
+retained with the data.
+
+The source study includes a 30% contemporaneous-link setting. The matched
+eight-method comparison uses `contemp_fraction=0.0`, because the methods do not
+all return a compatible contemporaneous graph. This deviation is recorded in
+every bundle. A source-faithful contemporaneous experiment, if run, belongs in
+a separate table with method-specific estimands and must not be pooled with the
+positive-lag comparison.
+
+Lorenz-96 supplies a further dynamical-system stress test. The preparation
+notebook records the forcing, integration step, noise scale, burn-in, seed, and
+aggregate structural graph rather than classifying the process by a broad
+linear/nonlinear label.
+
+DREAM3 Size 100 supplies five in-silico gene-regulatory systems generated with
+GeneNetWeaver. The aggregate regulatory network is the recovery target. The
+data are grouped with the other generated processes, not with the measured-data
+case studies. The preparation notebook obtains the preprocessed tensors and
+network files from a pinned revision of the original SRU_for_GCI authors'
+repository and verifies every file digest before invoking the unchanged CUTS+
+loader.
+
+The upstream CUTS+ Lorenz configuration starts from 32 variable groups. When
+a shared dataset has fewer than 32 variables, the CUTS+ notebook uses the
+dataset width as the initial group count; otherwise the upstream value is
+retained. The cap is required by the upstream initialization logic, which does
+not create its graph parameter when the initial group count exceeds the number
+of variables. No CUTS+ estimator code is modified.
+
+## Empirical case studies
+
+The first measured-data study uses the `wt_walks_v1` wind-tunnel recordings
+from Causal Chambers. The source-faithful primary bundle uses the
+`actuators_random_walk_1` experiment, the 16 variables selected in the authors'
+time-series causal-discovery case study, per-variable min--max normalization,
+and maximum fitted lag 10. The physical causal model distributed by the
+project is stored as a reference network. It is displayed separately from the
+eight inferred graphs and is not required for running the collector.
+
+The second study uses CausalRivers discharge measurements from eastern Germany
+and Bavaria. It applies the authors' connected-subgraph routine to five-station
+graphs and selects five subgraphs per region deterministically from the sorted
+candidate list. The time series follow the repository's default preparation:
+6-hour rounded means, per-station min--max normalization, linear interpolation,
+and removal of incomplete end rows. The supplied river-connectivity subgraph is
+stored as a contextual reference. It is not treated as an exhaustive
+lag-resolved statistical causal graph.
+
+Both empirical collectors write a method-by-method edge table, a run-status
+table, an optional reference-edge table, and directed graph panels with common
+node positions. They do not compute graph-recovery metrics. This rule also
+applies to a future measured dataset with no defensible reference graph: the
+reported result is the inferred network, together with method settings and
+provenance.
+
+## Metrics for controlled and in-silico recovery
 
 No single metric is sufficient for sparse directed graphs. The following set is
-recorded for both exact-lag and any-lag recovery unless stated otherwise.
+recorded for exact-lag and any-lag recovery on simulated and in-silico datasets
+unless stated otherwise. These metrics are not mandatory outcomes for the two
+empirical case studies.
 
 ### Ranking metrics
 
@@ -194,6 +307,19 @@ is never reused as a two-level “score.” If a method exposes only decisions, 
 prespecified parameter path must be run or the ranking metrics are reported as
 not available. Scores must have the same direction for every method (larger
 means stronger evidence for an edge).
+
+For Bagged PCMCI+, Tigramite reports the frequency of the modal graph mark.
+Under the pinned PCMCI+ positive-lag graph contract, the only marks are no edge
+and `-->`. Directed-edge frequency is therefore the modal frequency when `-->`
+is modal and one minus the modal frequency when no edge is modal. The collector
+rejects this reconstruction if another positive-lag modal mark appears; such a
+case requires the saved bootstrap graph stack.
+
+CEDAR's `pvalue_matrix` records only its first conditional-independence
+condition for candidates that reached that stage, and MCI pruning does not
+update it. Its `lag_pvalues` belong to preliminary lag screening. Neither is a
+complete final-edge confidence ranking, so CEDAR receives thresholded graph
+metrics but not AUROC or AUPRC in the main comparison.
 
 ### Thresholded graph metrics
 
@@ -222,15 +348,35 @@ regularization grids are selected on development/validation seeds only.
 
 ## Statistical comparison
 
-The dataset/seed is the paired experimental unit. Report the median and a 95%
-cluster-bootstrap interval across seeds for each method and cell. Pairwise
-method contrasts use a paired permutation or randomization test on the
-seed-level metric differences, with effect sizes and Holm correction across the
-declared family of comparisons. Do not treat individual edges as independent
-replicates.
+For controlled and in-silico recovery, the dataset/seed is the paired
+experimental unit. The notebook tables report
+the mean and sample standard deviation across seeds for each method and cell.
+The confirmatory analysis may also report the median and a 95% cluster-bootstrap
+interval. Pairwise method contrasts use a two-sided Wilcoxon signed-rank test
+on paired dataset-level AUPRC differences, with rank-biserial effect sizes,
+paired bootstrap confidence intervals, and Holm correction across the eight
+declared contrasts within each dataset suite. Do not treat individual edges as
+independent replicates.
 
 AUPRC, AUROC, F1, MCC, and normalized SHD should be compared on the same paired
-datasets.
+controlled or in-silico datasets. The empirical graph panels are descriptive
+case studies and do not enter these paired tests.
+
+Each simulation or in-silico directory ends with
+`90-collect-and-score.ipynb`. The notebook
+uses the shared tested scoring module to validate input and output hashes,
+retain explicit missing/failed rows, and write both run-level measurements and
+cell-level mean (sample SD) summaries. The summaries include attempted,
+completed, and failed counts. Exact-lag and aggregate-any-lag estimates remain
+in distinct rows, and failure-aware F1 assigns zero to every attempted fit that
+fails. Fits that have not yet been attempted are counted as missing rather than
+as failures.
+
+Each empirical directory instead ends with
+`90-collect-and-visualize.ipynb`. It uses the shared tested collector to
+validate hashes, preserve missing and failed fits, export inferred edges, and
+draw one directed graph per method. An available reference network is plotted
+in its own panel and is not silently converted into a recovery leaderboard.
 
 ## Execution and failure protocol
 
@@ -245,35 +391,52 @@ datasets.
 Elapsed time, memory use, hardware rankings, and accelerator comparisons are
 outside this study. They are not collected or reported as comparison outcomes.
 
-Long notebook runs checkpoint after every completed
-`(scenario, trial_id, n_past)` fit. A checkpoint is reusable only when its
+Long notebook runs checkpoint after every completed dataset fit. A checkpoint
+is reusable only when its
 dataset digest, method settings, upstream commit, and software fingerprint match
 the current run.
 Failures remain explicit records and are retried on the next run. Native arrays
 are saved separately with their own SHA-256 digest. A user can cap the number
 of new fits in one session or interrupt a fit and rerun the cell. Because the
-published c-GC code has no internal checkpoint API, resumption occurs between
+conventional c-GC code has no internal checkpoint API, resumption occurs between
 fits, not inside a permutation calculation.
 
 Data-generation seeds and estimator seeds are recorded separately. The
-published implementation uses NumPy randomness within concurrent Numba code
+conventional implementation uses NumPy randomness within concurrent Numba code
 and does not accept a random-state object. Setting the recorded wrapper seed is
 best-effort control; deterministic estimator output is not assumed until a
 repeatability check establishes it.
 
-The published c-GC/c-GC* thresholds (`alpha=0.01`, `beta=0.001`) and permutation
-count (`N=1000`) are retained as a source-faithful arm. The finite resolution of
-permutation p-values is reported explicitly. A separately labeled validation-
-tuned arm may use a common threshold grid, but no setting may be chosen using
-held-out test seeds.
+The conventional c-GC/c-GC* thresholds (`alpha=0.01`, `beta=0.001`) and
+permutation count (`N=1000`) are retained as a source-faithful arm. Its
+continuous scores remain interpretable, but `beta=0.001` is below the minimum
+complete-shift p-value in every scored dataset and therefore cannot support a
+thresholded comparison of the fast methods. A separately labelled calibration
+arm uses `alpha=0.01` and `beta=0.005`: this value exceeds the largest observed
+floor, `1/245 = 0.00408`, while remaining stricter than the marginal threshold.
+The rule must be checked on separate null or development data, frozen, and then
+used for all four c-GC variants on the same test datasets. Increasing the number
+of repeated evaluations does not improve a complete finite shift orbit; a
+different p-value construction would change the statistical procedure.
+
+New fast-method archives store the marginal and conditional p-value arrays
+separately. This is required because their elementwise maximum preserves edge
+rankings but cannot reconstruct a decision when `alpha != beta`. Existing
+joint-only fast archives remain valid for their recorded score analysis but
+must not be rethresholded. Full evaluation is mandatory in the validation arm;
+short-circuit output does not contain conditional tests for every candidate.
 
 ## Software environment
 
 The comparison orchestration and core package target CPython 3.14. The
-published c-GC/c-GC* checkout remains at its recorded commit and runs in an
-isolated environment created from the authors' repository. The checkout and
-its environment are local inputs rather than vendored project files. Their
-resolved package versions and platform details are recorded with each run.
+project's `comparison` extra pins Tigramite and Causal Chambers in the active
+virtual environment. Each notebook verifies the installed distribution version
+before importing it. The `conventional-cgc` extra installs the authors' Git
+distribution at its recorded commit and supplies its undeclared runtime
+dependencies, including the PyTorch import required by CDT 0.6.0 package
+initialization. It is intended for the Apple Silicon analysis host, where Numba
+and PyTorch provide CPython 3.14 wheels. Resolved package versions and platform
+details are recorded with each run.
 
 Other external repositories retain isolated environments. A method that cannot
 run unmodified on Python 3.14 is either reported in a clearly labeled exception

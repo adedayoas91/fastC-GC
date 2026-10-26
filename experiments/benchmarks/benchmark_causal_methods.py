@@ -13,6 +13,7 @@ import argparse
 import csv
 import importlib.metadata as importlib_metadata
 import json
+import os
 from pathlib import Path
 import platform
 import subprocess
@@ -138,12 +139,11 @@ def _save_dataset_bundle(
     dataset_dir = output_dir / "datasets"
     dataset_dir.mkdir(parents=True, exist_ok=True)
     data_path = dataset_dir / f"{dataset_id}.npz"
-    np.savez_compressed(
-        data_path,
-        series=np.asarray(dataset.series, dtype=float),
-        coefficients=np.asarray(dataset.coefficients, dtype=float),
-        lag_truth=np.asarray(dataset.lag_truth, dtype=bool),
-    )
+    arrays = {
+        "series": np.asarray(dataset.series, dtype=float),
+        "coefficients": np.asarray(dataset.coefficients, dtype=float),
+        "lag_truth": np.asarray(dataset.lag_truth, dtype=bool),
+    }
     metadata = {
         "dataset_id": dataset_id,
         "data_digest": dataset.digest,
@@ -154,13 +154,48 @@ def _save_dataset_bundle(
         "coefficient_layout": "lag, target, source",
         "truth_layout": "lag, source, target",
         "external_method_policy": (
-            "Run unchanged code from a pinned author repository; retain the "
-            "native raw output and command before conversion."
+            "Run the pinned upstream package or unchanged code from a pinned "
+            "author repository; retain native raw output before conversion."
         ),
     }
-    data_path.with_suffix(".json").write_text(
-        json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8"
-    )
+    metadata_path = data_path.with_suffix(".json")
+    if data_path.exists() or metadata_path.exists():
+        if not data_path.is_file() or not metadata_path.is_file():
+            raise FileNotFoundError(f"Incomplete dataset bundle at {data_path}.")
+        with np.load(data_path, allow_pickle=False) as stored:
+            saved = {name: np.asarray(stored[name]) for name in stored.files}
+        recorded = json.loads(metadata_path.read_text(encoding="utf-8"))
+        arrays_match = set(saved) == set(arrays) and all(
+            np.array_equal(saved[name], value)
+            for name, value in arrays.items()
+        )
+        if not arrays_match or recorded != metadata:
+            raise ValueError(
+                f"Existing dataset bundle does not match request: {data_path}."
+            )
+        return data_path
+
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=dataset_dir,
+        prefix=f".{data_path.name}.",
+        delete=False,
+    ) as handle:
+        np.savez_compressed(handle, **arrays)
+        temporary_data = Path(handle.name)
+    os.replace(temporary_data, data_path)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=dataset_dir,
+        prefix=f".{metadata_path.name}.",
+        delete=False,
+    ) as handle:
+        json.dump(metadata, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        temporary_metadata = Path(handle.name)
+    os.replace(temporary_metadata, metadata_path)
     return data_path
 
 
@@ -178,6 +213,16 @@ def _save_worker_result(
         lag_pvalues=(
             np.asarray(result.lag_pvalues, dtype=float)
             if result.lag_pvalues is not None
+            else np.empty((0,), dtype=float)
+        ),
+        lag_marginal_pvalues=(
+            np.asarray(result.lag_marginal_pvalues, dtype=float)
+            if result.lag_marginal_pvalues is not None
+            else np.empty((0,), dtype=float)
+        ),
+        lag_conditional_pvalues=(
+            np.asarray(result.lag_conditional_pvalues, dtype=float)
+            if result.lag_conditional_pvalues is not None
             else np.empty((0,), dtype=float)
         ),
     )
@@ -275,6 +320,8 @@ def _edge_rows(
 ) -> Iterable[dict[str, Any]]:
     n_lags, n_variables, _ = truth.shape
     pvalues = result.lag_pvalues
+    marginal_pvalues = result.lag_marginal_pvalues
+    conditional_pvalues = result.lag_conditional_pvalues
     for lag in range(n_lags):
         for source in range(n_variables):
             for target in range(n_variables):
@@ -293,17 +340,43 @@ def _edge_rows(
                         if pvalues is None
                         else float(pvalues[lag, source, target])
                     ),
+                    "marginal_pvalue": (
+                        ""
+                        if marginal_pvalues is None
+                        else float(marginal_pvalues[lag, source, target])
+                    ),
+                    "conditional_pvalue": (
+                        ""
+                        if conditional_pvalues is None
+                        else float(conditional_pvalues[lag, source, target])
+                    ),
                 }
 
 
 def _load_worker_result(path: Path) -> tuple[MethodResult, dict[str, Any]]:
     with np.load(path, allow_pickle=False) as stored:
         pvalues = stored["lag_pvalues"]
+        marginal_pvalues = (
+            stored["lag_marginal_pvalues"]
+            if "lag_marginal_pvalues" in stored.files
+            else np.empty((0,), dtype=float)
+        )
+        conditional_pvalues = (
+            stored["lag_conditional_pvalues"]
+            if "lag_conditional_pvalues" in stored.files
+            else np.empty((0,), dtype=float)
+        )
         result = MethodResult(
             method=json.loads(path.with_suffix(".json").read_text())["method"],
             lag_adjacency=stored["lag_adjacency"],
             lag_scores=stored["lag_scores"],
             lag_pvalues=None if pvalues.size == 0 else pvalues,
+            lag_marginal_pvalues=(
+                None if marginal_pvalues.size == 0 else marginal_pvalues
+            ),
+            lag_conditional_pvalues=(
+                None if conditional_pvalues.size == 0 else conditional_pvalues
+            ),
         )
     metadata = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
     return result, metadata
@@ -320,7 +393,8 @@ def _dataset_cells(args: argparse.Namespace) -> Iterable[tuple[int, int, int, in
 
 def _run(args: argparse.Namespace) -> int:
     _require_python_314()
-    unknown = [method for method in args.methods if method not in DEFAULT_METHODS]
+    methods = () if args.datasets_only else args.methods
+    unknown = [method for method in methods if method not in DEFAULT_METHODS]
     if unknown:
         raise ValueError(
             f"Methods without a local runner: {', '.join(sorted(unknown))}. "
@@ -350,7 +424,7 @@ def _run(args: argparse.Namespace) -> int:
                 f"var{n_variables}-t{n_samples}-p{order}-{noise}-seed{seed}"
             )
             _save_dataset_bundle(output_dir, dataset_id, dataset)
-            for method_index, method in enumerate(args.methods):
+            for method_index, method in enumerate(methods):
                 worker_output = temporary_dir / f"{cell_index}-{method_index}.npz"
                 command = _worker_command(
                     args,
@@ -423,12 +497,14 @@ def _run(args: argparse.Namespace) -> int:
                     )
                 )
 
-    _write_csv(output_dir / "method_metrics.csv", metric_rows)
-    _write_csv(output_dir / "edge_predictions.csv", edge_rows)
+    if not args.datasets_only:
+        _write_csv(output_dir / "method_metrics.csv", metric_rows)
+        _write_csv(output_dir / "edge_predictions.csv", edge_rows)
     manifest = {
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "software_provenance": _software_provenance(),
-        "methods": list(args.methods),
+        "methods": list(methods),
+        "datasets_only": args.datasets_only,
         "variables": list(args.variables),
         "samples": list(args.samples),
         "orders": list(args.orders),
@@ -448,14 +524,18 @@ def _run(args: argparse.Namespace) -> int:
             "auroc": "secondary; only continuous scores are accepted",
         },
         "external_method_policy": (
-            "Clone and pin each authors' repository, run its native code on "
-            "the exported datasets, and preserve raw outputs before conversion."
+            "Use a pinned installed distribution when one exists; otherwise "
+            "clone and pin the authors' repository. Preserve native outputs "
+            "before conversion."
         ),
     }
     (output_dir / "protocol.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
     )
-    print(f"Wrote {len(metric_rows)} method rows to {output_dir}")
+    if args.datasets_only:
+        print(f"Wrote shared datasets to {output_dir / 'datasets'}")
+    else:
+        print(f"Wrote {len(metric_rows)} method rows to {output_dir}")
     return 0
 
 
@@ -463,6 +543,8 @@ def _list_methods() -> int:
     for spec in METHOD_SPECS:
         if spec.runnable:
             state = "local runner"
+        elif spec.track.startswith("installed-"):
+            state = "notebook pkg"
         elif spec.track.startswith("external-repository"):
             state = "external repo"
         else:
@@ -478,6 +560,11 @@ def _list_methods() -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-methods", action="store_true")
+    parser.add_argument(
+        "--datasets-only",
+        action="store_true",
+        help="Export the paired dataset grid without fitting a method.",
+    )
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--method", default="fast-cgc")
     parser.add_argument("--methods", type=_parse_strings, default=DEFAULT_METHODS)

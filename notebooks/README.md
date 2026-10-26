@@ -4,22 +4,130 @@ This directory contains the runnable experiment notebooks. Reusable estimator,
 dataset, metric, and checkpoint code remains in `src/fastCGC/`; command-line
 experiment drivers and notebook generators remain in `experiments/`.
 
-## Layout
+## Dataset-first comparison layout
 
 ```text
 simulations/
-├── linear/
-│   ├── c-GC/
-│   └── c-GC-star/
-└── nonlinear/
-    ├── fastC-GC/
-    └── fastC-GC-star/
+├── sparseVAR/
+├── lorenz96/
+├── autocorrelatedSCM/
+└── dream3/
+empirical/
+├── causalChamber/
+└── causalRivers/
 ```
 
-The eight linear notebooks execute conventional c-GC or c-GC* from the pinned
-authors' checkout under `external/causalized-GC`. The two nonlinear notebooks
-evaluate the local fastC-GC and fastC-GC* dependence profiles and are reported
-as a separate experimental track.
+Every directory contains the same preparation notebook and eight method
+notebooks:
+
+```text
+00-prepare-data.ipynb
+fastC-GC.ipynb
+fastC-GC-star.ipynb
+c-GC.ipynb
+c-GC-star.ipynb
+PCMCI-plus.ipynb
+Bagged-PCMCI-plus.ipynb
+CEDAR.ipynb
+CUTS-plus.ipynb
+```
+
+Simulation and in-silico directories end with
+`90-collect-and-score.ipynb`. Empirical directories end with
+`90-collect-and-visualize.ipynb`.
+
+Run `00-prepare-data.ipynb` first. It creates or validates the immutable dataset
+bundles used by every method notebook in that directory. The method notebooks
+save native outputs before common graph conversion. Conventional
+c-GC/c-GC*, PCMCI+, Bagged PCMCI+, and CEDAR are imported from pinned
+distributions in the active environment. CUTS+ is loaded from its pinned
+authors' checkout under the ignored `external/` directory. Their estimators
+are not copied into this repository.
+
+For simulations and DREAM3, run `90-collect-and-score.ipynb` after the method
+notebooks. It validates the
+saved dataset and native-output hashes, records missing or failed fits, and
+writes `run_metrics.csv` plus `summary_mean_std.csv` under
+`data/outputs/causal-comparison/<dataset>/scores/`. Summary rows report the
+mean and sample standard deviation across dataset instances in the same
+experimental cell. Exact-lag and aggregate-any-lag results remain separate;
+methods with aggregate-only native outputs are not assigned synthetic lags.
+CEDAR contributes binary graph metrics on both estimands. Its upstream result
+does not expose a complete post-pruning score for every candidate edge, so the
+collector leaves CEDAR's AUROC and AUPRC fields unavailable.
+
+For Causal Chambers and CausalRivers, run
+`90-collect-and-visualize.ipynb`. It exports every inferred cross-variable edge,
+keeps missing and failed fits visible, and draws the methods' directed graphs
+with a common node layout. These empirical case studies do not require
+graph-recovery metrics. A supplied physical or constructed network is shown in
+a separately labelled reference panel rather than assumed to be an exhaustive
+lag-resolved causal truth.
+
+The DREAM3 Size 100 networks are in-silico GeneNetWeaver benchmarks, not
+real-world measurements. Their source files are not distributed by the CUTS+
+repository. The data
+preparation notebook therefore validates a user-supplied, licensed copy rather
+than downloading data from an unverified mirror.
+
+Install the packaged comparison dependencies in the project environment first:
+
+```bash
+uv sync --extra dev --extra notebooks --extra comparison --extra conventional-cgc --extra cedar
+```
+
+The `notebooks` extra supplies the complete IPython kernel, including
+`matplotlib-inline` and the dependencies needed to render tracebacks. The
+remaining extras install `tigramite==5.2.10.1`, `causalchamber==0.2.8`, and
+conventional c-GC/c-GC* from the pinned authors' Git commit, together with
+CEDAR from Bloomberg's pinned official `causal-ts` Git commit. The notebooks
+reject a missing or different version or source revision instead of searching
+another project's `site-packages` directory. The conventional c-GC extra is
+also responsible for `torch==2.14.1`, which CDT imports without declaring in
+its package metadata. This extra is intended for the Apple Silicon analysis
+machine because Numba and PyTorch provide CPython 3.14 arm64 wheels there.
+
+Register the synchronized environment once, then select this kernel in Jupyter
+or VS Code. Restart the kernel whenever the environment is resynchronized:
+
+```bash
+.venv/bin/python -m ipykernel install --user --name fastcgc-py314-arm64 \
+  --display-name "fastcgc (Python 3.14, Apple Silicon)"
+```
+
+The repository-only notebooks expect these verified checkouts by default:
+
+- `external/UNN` at `2212724cce8a7752db564089a7537fecedb0e36d`;
+- `external/debeire24clear_Bagged_TimeSeries_Causality` at
+  `8e16fb89b8f3b4db47ff57f2bd09dcd5c9f7e4c9` for the autocorrelated-SCM
+  generator used by Debeire et al. (2024);
+- `external/causalrivers` at
+  `a30154fbb9a2e03bae133c643d7e978df63b3766` for the authors' connected-subgraph
+  sampler.
+
+Override the CUTS+ checkout with `UNN_ROOT`. Set `BAGGED_PCMCI_DATA_ROOT` or
+`CAUSAL_RIVERS_ROOT` for the other checkouts.
+The preparation notebooks download the official measurement archives into the
+ignored `external/datasets/` directory and verify their recorded SHA-256
+digests. Existing downloads can be selected with `CAUSAL_CHAMBER_ARCHIVE` and
+`CAUSAL_RIVERS_ARCHIVE`.
+
+The CausalRivers preparation notebook imports `networkx` and the subgraph
+sampler from the pinned CausalRivers checkout. Run that notebook in an
+environment containing the official repository's data dependencies; `networkx`
+is not added as a dependency of the fastC-GC estimator package.
+
+The simulation tree is organized by data-generating process, not by dependence
+profile. The preparation notebook describes the process and records its
+parameters. Identity and curved link functions, when present, are analysis
+factors within that process rather than separate directory classes.
+
+The autocorrelated-SCM notebooks use the authors' generator from
+[Debeire et al. (2024)](https://proceedings.mlr.press/v236/debeire24a.html).
+The common comparison arm sets the generator's contemporaneous-link fraction
+to zero so all eight methods are scored on the same positive-lag graph. This
+adaptation is stated in the notebook and stored in each dataset's metadata. A
+cross-link-free cell is included to measure false positives directly.
 
 All notebooks use deterministic, hash-verified dataset bundles. Successful
 fits are checkpointed, so a stopped run can continue without repeating
@@ -28,8 +136,7 @@ completed work. Set `MAX_NEW_FITS` to a positive integer for a bounded session.
 Regenerate the committed notebooks after changing their shared templates:
 
 ```bash
-uv run --extra dev python experiments/benchmarks/sync_published_cgc_notebooks.py
-uv run --extra dev python experiments/benchmarks/sync_nonlinear_notebooks.py
+uv run --extra dev python experiments/benchmarks/sync_comparison_notebooks.py
 ```
 
 Notebook outputs are intentionally cleared before commit. Experimental data,

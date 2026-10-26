@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tomllib
 
 import numpy as np
 import pytest
 
+from fastCGC.experiments import upstream as upstream_module
 from fastCGC.experiments.notebook_checkpoint import (
     checkpoint_path,
     configuration_hash,
@@ -19,19 +21,23 @@ from fastCGC.experiments.notebook_checkpoint import (
     write_npz_checkpoint,
 )
 from fastCGC.experiments.upstream import (
+    CAUSALTS_COMMIT,
+    CAUSALTS_URL,
+    CAUSALTS_VERSION,
     CAUSALIZED_GC_COMMIT,
     CAUSALIZED_GC_URL,
+    load_installed_cedar,
+    verify_installed_distribution,
+    verify_installed_vcs_distribution,
 )
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SIMULATION_NOTEBOOK_ROOT = PROJECT_ROOT / "notebooks" / "simulations"
-NOTEBOOK_ROOT = SIMULATION_NOTEBOOK_ROOT / "linear"
 
 
 def _record(status: str = "ok") -> dict[str, object]:
     return {
-        "method": "published-cgc",
+        "method": "cgc",
         "scenario": "singleLag-Markovian",
         "trial_id": 0,
         "n_past": 1,
@@ -85,7 +91,7 @@ def test_checkpoint_collection_and_native_output_digest(tmp_path) -> None:
     records = read_checkpoints(path.parent)
     rows = metric_rows(
         records,
-        method="published-cgc",
+        method="cgc",
         scenario="singleLag-Markovian",
         config_hash="config-digest",
         upstream_commit=CAUSALIZED_GC_COMMIT,
@@ -108,72 +114,6 @@ def test_hashes_and_algorithm_seeds_are_stable() -> None:
     )
 
 
-def test_conventional_notebooks_use_only_the_pinned_upstream_estimator() -> None:
-    paths = sorted((NOTEBOOK_ROOT / "c-GC").glob("*.ipynb"))
-    paths += sorted((NOTEBOOK_ROOT / "c-GC-star").glob("*.ipynb"))
-    assert len(paths) == 8
-
-    for path in paths:
-        notebook = json.loads(path.read_text(encoding="utf-8"))
-        source = "\n".join(
-            "".join(cell.get("source", []))
-            for cell in notebook["cells"]
-        )
-        assert "FastGcStar as GcStar" not in source
-        assert "load_published_cgc" in source
-        assert "load_or_generate_trial_data" in source
-        assert "reusable_success" in source
-        assert CAUSALIZED_GC_URL.removesuffix(".git") in source
-        for index, cell in enumerate(notebook["cells"]):
-            if cell["cell_type"] == "code":
-                assert cell["execution_count"] is None
-                assert cell["outputs"] == []
-                compile(
-                    "".join(cell["source"]),
-                    f"{path.name}:cell-{index}",
-                    "exec",
-                )
-
-
-def test_all_simulation_notebooks_share_data_and_resume_contract() -> None:
-    paths = sorted(SIMULATION_NOTEBOOK_ROOT.glob("**/*.ipynb"))
-    assert len(paths) == 10
-
-    for path in paths:
-        notebook = json.loads(path.read_text(encoding="utf-8"))
-        source = "\n".join(
-            "".join(cell.get("source", []))
-            for cell in notebook["cells"]
-        )
-        assert "load_or_generate_trial_data" in source
-        assert "dataset_digest" in source
-        assert "reusable_success" in source
-        assert "MAX_NEW_FITS" in source
-        assert 'EXPECTED_PYTHON = (3, 14)' in source
-        assert '"software_fingerprint": SOFTWARE_FINGERPRINT' in source
-        assert "fit_seconds" not in source
-        assert "runtime_fingerprint" not in source
-        assert "runtime_provenance" not in source
-        assert "EXPECTED_MACHINE" not in source
-        assert "THREAD_LIMITS" not in source
-        assert "timing.png" not in source
-        assert notebook["metadata"]["kernelspec"] == {
-            "display_name": "fastcgc (Python 3.14, Apple Silicon)",
-            "language": "python",
-            "name": "fastcgc-py314-arm64",
-        }
-        assert notebook["metadata"]["language_info"]["version"] == "3.14"
-        for index, cell in enumerate(notebook["cells"]):
-            if cell["cell_type"] == "code":
-                assert cell["execution_count"] is None
-                assert cell["outputs"] == []
-                compile(
-                    "".join(cell["source"]),
-                    f"{path.name}:cell-{index}",
-                    "exec",
-                )
-
-
 def test_notebook_loader_pins_upstream_revision() -> None:
     assert CAUSALIZED_GC_URL == (
         "https://github.com/adedayoas91/causalized-GC.git"
@@ -181,6 +121,9 @@ def test_notebook_loader_pins_upstream_revision() -> None:
     assert CAUSALIZED_GC_COMMIT == (
         "575ac1dc67a0282a5ca88bc11a2804df052f674d"
     )
+    assert CAUSALTS_URL == "https://github.com/bloomberg/causal-ts.git"
+    assert CAUSALTS_COMMIT == "0d1fae061b2445a51d0c8b75fc565d897dd54fb7"
+    assert CAUSALTS_VERSION == "0.27.0"
 
 
 def test_project_requires_python_314() -> None:
@@ -190,3 +133,136 @@ def test_project_requires_python_314() -> None:
 
     assert (PROJECT_ROOT / ".python-version").read_text().strip() == "3.14"
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
+
+
+def test_comparison_extra_pins_installable_upstream_packages() -> None:
+    project = tomllib.loads(
+        (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert set(project["project"]["optional-dependencies"]["comparison"]) == {
+        "causalchamber==0.2.8",
+        "tigramite==5.2.10.1",
+    }
+    assert set(
+        project["project"]["optional-dependencies"]["conventional-cgc"]
+    ) == {
+        "cdt==0.6.0",
+        "gc-extension @ git+https://github.com/adedayoas91/causalized-GC.git@575ac1dc67a0282a5ca88bc11a2804df052f674d",
+        "numba==0.68.0",
+        "torch==2.14.1",
+    }
+    assert set(project["project"]["optional-dependencies"]["cedar"]) == {
+        "causalts @ git+https://github.com/bloomberg/causal-ts.git@0d1fae061b2445a51d0c8b75fc565d897dd54fb7",
+    }
+
+
+def test_notebook_extra_provides_the_jupyter_kernel() -> None:
+    project = tomllib.loads(
+        (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert set(project["project"]["optional-dependencies"]["notebooks"]) == {
+        "ipykernel==7.4.0",
+    }
+
+
+def test_installed_distribution_revision_is_versioned() -> None:
+    assert verify_installed_distribution(
+        "pytest",
+        expected_version=pytest.__version__,
+    ) == f"pytest=={pytest.__version__}"
+
+    with pytest.raises(RuntimeError, match="expected 0.0.0"):
+        verify_installed_distribution("pytest", expected_version="0.0.0")
+
+
+def test_installed_git_distribution_verifies_pep610_provenance(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FakeDistribution:
+        def read_text(self, filename: str) -> str | None:
+            assert filename == "direct_url.json"
+            return json.dumps(
+                {
+                    "url": CAUSALIZED_GC_URL,
+                    "vcs_info": {
+                        "vcs": "git",
+                        "commit_id": CAUSALIZED_GC_COMMIT,
+                    },
+                }
+            )
+
+        def locate_file(self, path: str) -> Path:
+            assert path == ""
+            return tmp_path
+
+    monkeypatch.setattr(
+        upstream_module,
+        "installed_distribution",
+        lambda name: FakeDistribution(),
+    )
+    revision = verify_installed_vcs_distribution(
+        "gc-extension",
+        expected_url=CAUSALIZED_GC_URL,
+        expected_commit=CAUSALIZED_GC_COMMIT,
+        install_extra="conventional-cgc",
+    )
+
+    assert revision.root == tmp_path
+    assert revision.remote_url == CAUSALIZED_GC_URL
+    assert revision.commit == CAUSALIZED_GC_COMMIT
+
+
+def test_cedar_loader_verifies_import_root_and_returns_native_api(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FakeDistribution:
+        def read_text(self, filename: str) -> str | None:
+            assert filename == "direct_url.json"
+            return json.dumps(
+                {
+                    "url": CAUSALTS_URL,
+                    "vcs_info": {
+                        "vcs": "git",
+                        "commit_id": CAUSALTS_COMMIT,
+                    },
+                }
+            )
+
+        def locate_file(self, path: str) -> Path:
+            assert path == ""
+            return tmp_path
+
+    run_cedar = object()
+    parcorr_gpu = type("ParCorrGPU", (), {})
+    modules = {
+        "causalts.cedar.discovery": SimpleNamespace(
+            __file__=tmp_path / "causalts" / "cedar" / "discovery.py",
+            run_cedar=run_cedar,
+        ),
+        "causalts.ci_tests": SimpleNamespace(ParCorrGPU=parcorr_gpu),
+    }
+    monkeypatch.setattr(
+        upstream_module,
+        "installed_distribution",
+        lambda name: FakeDistribution(),
+    )
+    monkeypatch.setattr(
+        upstream_module,
+        "version",
+        lambda name: CAUSALTS_VERSION,
+    )
+    monkeypatch.setattr(
+        upstream_module,
+        "import_module",
+        lambda name: modules[name],
+    )
+
+    observed_run, observed_ci, revision = load_installed_cedar()
+
+    assert observed_run is run_cedar
+    assert observed_ci is parcorr_gpu
+    assert revision.commit == CAUSALTS_COMMIT

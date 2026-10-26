@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from fastCGC.experiments.causal_benchmark import (
     aggregate_lags,
@@ -48,6 +49,46 @@ def test_benchmark_metadata_converts_numpy_values_to_json_types() -> None:
     json.dumps(converted)
 
 
+def test_datasets_only_mode_is_available_for_shared_data_notebooks() -> None:
+    parser = _load_cli_module()._parser()
+
+    args = parser.parse_args(["--datasets-only", "--replicates", "1"])
+
+    assert args.datasets_only is True
+
+
+def test_datasets_only_mode_exports_without_method_results(tmp_path) -> None:
+    module = _load_cli_module()
+    args = module._parser().parse_args(
+        [
+            "--datasets-only",
+            "--variables",
+            "2",
+            "--samples",
+            "12",
+            "--orders",
+            "1",
+            "--noises",
+            "gaussian",
+            "--replicates",
+            "1",
+            "--seed-start",
+            "31",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert module._run(args) == 0
+
+    assert (tmp_path / "datasets" / "var2-t12-p1-gaussian-seed31.npz").is_file()
+    assert not (tmp_path / "method_metrics.csv").exists()
+    assert not (tmp_path / "edge_predictions.csv").exists()
+    manifest = json.loads((tmp_path / "protocol.json").read_text(encoding="utf-8"))
+    assert manifest["datasets_only"] is True
+    assert manifest["methods"] == []
+
+
 def test_comparison_runner_records_software_without_hardware_ranking() -> None:
     module = _load_cli_module()
 
@@ -82,6 +123,17 @@ def test_exported_dataset_bundle_preserves_arrays_and_conventions(tmp_path) -> N
     assert metadata["data_digest"] == dataset.digest
     assert metadata["series_layout"] == "variable, time"
     assert metadata["truth_layout"] == "lag, source, target"
+
+    assert module._save_dataset_bundle(tmp_path, "example", dataset) == path
+
+    conflicting = simulate_sparse_var(
+        n_variables=3,
+        n_samples=50,
+        order=2,
+        seed=14,
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        module._save_dataset_bundle(tmp_path, "example", conflicting)
 
 
 def test_sparse_var_is_reproducible_stable_and_lag_resolved() -> None:

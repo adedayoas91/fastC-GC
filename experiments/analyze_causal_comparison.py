@@ -29,6 +29,7 @@ RESULT_ROOT = PROJECT_ROOT / "data" / "outputs" / "causal-comparison"
 SHARED_ROOT = PROJECT_ROOT / "data" / "shared" / "causal-comparison"
 ANALYSIS_ROOT = RESULT_ROOT / "analysis"
 FIGURE_ROOT = ANALYSIS_ROOT / "figures"
+CALIBRATED_SCORE_DIR = "scores-alpha-0p01-beta-0p005"
 
 SCORED_DATASETS = (
     "sparseVAR",
@@ -78,15 +79,13 @@ METHOD_COLORS = {
 
 # The collector converts Tigramite's modal graph-mark frequency to directed
 # edge frequency after verifying that positive-lag marks are binary (no edge or
-# ``-->``). CEDAR is excluded because its public result contains no complete
+# ``-->``). CEDAR is excluded because its official result contains no complete
 # post-pruning edge-confidence matrix.
 RANKING_VALID = frozenset(METHOD_ORDER) - {"cedar"}
 
-# With complete circular-shift calibration, p >= 1/n_effective.  The fixed
-# beta=0.001 is below that floor in every scored simulation, so the archived
-# fast-method adjacencies are empty by construction.  Their rankings remain
-# valid, but thresholded metrics must not be compared as efficacy estimates.
-THRESHOLD_VALID = frozenset(METHOD_ORDER) - {"fast-cgc", "fast-cgc-star"}
+# Binary comparisons use the prespecified calibrated RCCP thresholds
+# (alpha=0.01, beta=0.005). All eight methods expose a final binary graph.
+THRESHOLD_VALID = frozenset(METHOD_ORDER)
 
 SUMMARY_METRICS = (
     "prevalence",
@@ -124,7 +123,7 @@ def _save_figure(figure: plt.Figure, stem: str) -> tuple[Path, Path]:
 def load_scored_results() -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for dataset in SCORED_DATASETS:
-        path = RESULT_ROOT / dataset / "scores" / "run_metrics.csv"
+        path = RESULT_ROOT / dataset / CALIBRATED_SCORE_DIR / "run_metrics.csv"
         if not path.is_file():
             raise FileNotFoundError(f"Missing scored results: {path}")
         frame = pd.read_csv(path)
@@ -133,6 +132,14 @@ def load_scored_results() -> pd.DataFrame:
         frames.append(frame)
 
     results = pd.concat(frames, ignore_index=True)
+    for dataset in SCORED_DATASETS:
+        observed = set(results.loc[results["dataset"] == dataset, "method"])
+        expected = set(METHOD_ORDER)
+        if observed != expected:
+            raise ValueError(
+                f"Method mismatch for {dataset}: expected {sorted(expected)}, "
+                f"found {sorted(observed)}."
+            )
     key = ["dataset", "dataset_id", "method", "estimand"]
     if results.duplicated(key).any():
         duplicates = results.loc[results.duplicated(key, keep=False), key]
@@ -163,6 +170,14 @@ def load_empirical_results() -> tuple[pd.DataFrame, pd.DataFrame]:
     if set(status["status"].unique()) != {"ok"}:
         counts = status["status"].value_counts(dropna=False).to_dict()
         raise ValueError(f"Non-success empirical rows are present: {counts}")
+    for dataset in EMPIRICAL_DATASETS:
+        observed = set(status.loc[status["dataset"] == dataset, "method"])
+        expected = set(METHOD_ORDER)
+        if observed != expected:
+            raise ValueError(
+                f"Method mismatch for {dataset}: expected {sorted(expected)}, "
+                f"found {sorted(observed)}."
+            )
     return status, edge
 
 
@@ -705,14 +720,14 @@ tables and figures.
 
 ## Calibration finding
 
-All archived fastC-GC and fastC-GC* simulation adjacencies are empty. The
-complete-shift p-value has minimum 1/n_effective, whereas the fitted conditional
-threshold is beta=0.001. Every simulated or in-silico series has fewer than
-1,000 effective observations after lag expansion, so beta is unattainable.
-The thresholded fast-method F1, MCC, and SHD values are therefore calibration
-artifacts and are not used for efficacy ranking. AUROC and AUPRC remain valid
-because their stored score, 1-max(p_marginal,p_conditional), varies across
-candidate edges and remains rankable.
+The source-faithful beta=0.001 threshold is below the complete-shift resolution
+of every controlled or in-silico series. A separate 2,000-fit validation study
+supported beta=0.005 for the tested i.i.d. and stationary settings. The binary
+tables and figures therefore use the frozen (alpha, beta)=(0.01, 0.005) rule
+for all four RCCP algorithms. Their continuous scores do not depend on this
+rescoring. CEDAR contributes its final binary graph but no AUROC or AUPRC,
+because the public result does not expose a complete post-pruning confidence
+matrix.
 
 ## Score-level agreement
 
@@ -732,14 +747,12 @@ so no empirical recovery ranking is reported.
 
 ## Interpretation
 
-The archived outputs support the continuous-score comparison and the
-thresholded results of methods whose decision rules were attainable. A
-thresholded comparison of all four c-GC variants requires a separate,
-prespecified calibration arm. For these datasets, beta=0.005 is above the
-largest complete-shift p-value floor (1/245 = 0.00408) and below alpha=0.01.
-It must be validated on separate null or development data, frozen, and then
-used to rerun all four variants on the same test datasets. The source-faithful
-beta=0.001 arm remains available for score-level comparison.
+The archived outputs support continuous-score comparisons among the seven
+methods that expose valid final-edge rankings and binary graph comparisons
+among all eight methods. The calibrated threshold is an edgewise choice for
+the tested stationary settings, not a graph-wide error guarantee. The
+source-faithful beta=0.001 arm remains available as a provenance record and for
+score-level comparison.
 """
     (ANALYSIS_ROOT / "analysis-report.md").write_text(report, encoding="utf-8")
 
@@ -778,8 +791,8 @@ declared contrasts within each dataset suite.
   that the archived positive-lag mark alphabet is binary.
 - CEDAR has no complete post-pruning edge-confidence matrix, so its AUROC and
   AUPRC are unavailable rather than computed from an internal screening score.
-- Thresholded fast-method contrasts are excluded because beta=0.001 is below
-  the attainable complete-shift p-value floor.
+- Binary metrics for the four RCCP algorithms use the independently validated
+  and frozen (alpha, beta)=(0.01, 0.005) rule.
 - DREAM3 has only five heterogeneous networks; its intervals and tests have
   low power and are descriptive support rather than population inference.
 - No individual edge is treated as an independent replicate.
@@ -807,8 +820,8 @@ declared contrasts within each dataset suite.
 - Purpose: compare thresholded graph recovery where the archived decision rule
   is interpretable.
 - Data: aggregate-any-lag F1, mean plus or minus sample standard deviation.
-- Observation: gray crosses mark fast-method outputs affected by the
-  unattainable beta threshold; they are not efficacy estimates.
+- Observation: all eight methods contribute final binary graphs; CEDAR enters
+  this figure despite lacking a continuous final-edge ranking score.
 - Caveat: threshold choices differ by native method and DREAM3 has five
   networks rather than repeated seeds.
 

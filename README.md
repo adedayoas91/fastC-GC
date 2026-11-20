@@ -297,6 +297,9 @@ the Apple Silicon analysis host. The completed grid contains 32 successful
 method cells and five timed repeats per cell; the manuscript reports these as
 hardware-specific end-to-end measurements.
 
+The same script can also time the linear, RFF-HSIC, RCOT, and combined variants
+for fastC-GC and fastC-GC*. See the [dependence timing command and CSV outputs](experiments/validation/README.md#timing-dependence-test-variants).
+
 Every simulation DGP has the same eight method notebooks. Each completed
 dataset fit has an atomic checkpoint and an unmodified native-output archive.
 Set `MAX_NEW_FITS` in a method notebook for a bounded session, or interrupt the

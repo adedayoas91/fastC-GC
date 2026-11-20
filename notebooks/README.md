@@ -133,6 +133,34 @@ All notebooks use deterministic, hash-verified dataset bundles. Successful
 fits are checkpointed, so a stopped run can continue without repeating
 completed work. Set `MAX_NEW_FITS` to a positive integer for a bounded session.
 
+## Dependence-test comparisons
+
+The `fastC-GC.ipynb` and `fastC-GC-star.ipynb` notebooks in `autocorrelatedSCM/`
+and `lorenz96/` each have a setup cell with one active `DEPENDENCE_VARIANT`.
+Uncomment one setting, comment the previous choice, and rerun from that cell.
+
+| Setting | Marginal test | Conditional test |
+| --- | --- | --- |
+| `linear` | Pearson | Ridge-residual correlation |
+| `rff-hsic` | RFF-HSIC | Ridge-residual correlation |
+| `rcot` | Pearson | RCoT |
+| `rff-hsic-rcot` | RFF-HSIC | RCoT |
+
+The SCM notebooks use the reference, mixed-link, and cross-link-null regimes
+for nonlinear variants and the full grid for `linear`. The Lorenz–96
+notebooks use the full grid. Both use the existing frozen
+bundles, lag orders, and algorithm seeds. The notebooks save checkpoints,
+component p-values, and wall time per fit under
+`data/outputs/causal-comparison/<dataset>/dependence-tests/<variant>/<method>/`.
+A `linear` rerun also saves there, leaving the original fits and score tables
+available for comparison. The final cell writes `run_metrics.csv` and
+`summary_mean_std.csv` beneath the selected method's output directory.
+
+The score tables use the manuscript reference thresholds (`0.01`, `0.005`).
+Check nonlinear-test calibration on autocorrelated null data before
+interpreting thresholded results. Compare runs on matching dataset IDs and
+estimands.
+
 Regenerate the committed notebooks after changing their shared templates:
 
 ```bash

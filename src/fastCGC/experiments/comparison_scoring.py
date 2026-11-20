@@ -879,6 +879,9 @@ def score_dataset_outputs(
     methods: Sequence[str] = METHODS,
     decision_alpha: float | None = None,
     decision_beta: float | None = None,
+    results_dir: Path | None = None,
+    scores_root: Path | None = None,
+    regimes: Sequence[str] | None = None,
 ) -> ScoreArtifacts:
     """Score all method checkpoints for one frozen dataset collection.
 
@@ -886,6 +889,11 @@ def score_dataset_outputs(
     sample standard deviations are accompanied by attempted/completed/failed
     counts and a failure-aware F1 in which every unsuccessful fit contributes
     zero.
+
+    ``results_dir`` contains the method checkpoint directories. By default,
+    score tables go under that directory. Use ``scores_root`` to write them
+    elsewhere without moving checkpoints. ``regimes`` limits scoring to
+    bundles with matching metadata while retaining missing and failed fits.
     """
 
     project_root = Path(project_root).resolve()
@@ -896,6 +904,13 @@ def score_dataset_outputs(
     if len(requested_methods) != len(set(requested_methods)):
         raise ValueError("methods must not contain duplicates.")
 
+    results_dir = (
+        project_root / "data" / "outputs" / "causal-comparison" / dataset_key
+        if results_dir is None
+        else Path(results_dir)
+    )
+    scores_root = results_dir if scores_root is None else Path(scores_root)
+    requested_regimes = None if regimes is None else set(regimes)
     dataset_dir = (
         project_root
         / "data"
@@ -911,11 +926,16 @@ def score_dataset_outputs(
         )
 
     rows: list[dict[str, Any]] = []
+    matched_bundle = False
     for bundle_path in bundle_paths:
         metadata_path = bundle_path.with_suffix(".json")
         if not metadata_path.is_file():
             raise FileNotFoundError(f"Missing metadata for {bundle_path}.")
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        regime = str(metadata.get("regime", ""))
+        if requested_regimes is not None and regime not in requested_regimes:
+            continue
+        matched_bundle = True
         with np.load(bundle_path, allow_pickle=False) as stored:
             series = np.asarray(stored["series"], dtype=float)
             if series.ndim != 2:
@@ -949,7 +969,6 @@ def score_dataset_outputs(
         ):
             raise ValueError(f"Lag truth has the wrong shape in {bundle_path}.")
         noise = str(metadata.get("noise", ""))
-        regime = str(metadata.get("regime", ""))
         seed: int | str = metadata.get("seed", metadata.get("dataset_index", ""))
 
         for method in requested_methods:
@@ -958,14 +977,7 @@ def score_dataset_outputs(
                 exact_truth=lag_truth is not None,
             )
             checkpoint_path = (
-                project_root
-                / "data"
-                / "outputs"
-                / "causal-comparison"
-                / dataset_key
-                / method
-                / "checkpoints"
-                / f"{dataset_id}.json"
+                results_dir / method / "checkpoints" / f"{dataset_id}.json"
             )
             if not checkpoint_path.is_file():
                 for estimand in expected_estimands:
@@ -1072,6 +1084,12 @@ def score_dataset_outputs(
                     }
                 )
 
+    if not matched_bundle:
+        raise ValueError(
+            f"No frozen {dataset_key} bundles match regimes "
+            f"{sorted(requested_regimes or ())}."
+        )
+
     run_metrics = pd.DataFrame(rows).sort_values(
         ["dataset_id", "method", "estimand"],
         kind="stable",
@@ -1086,14 +1104,7 @@ def score_dataset_outputs(
         alpha_tag = format(decision_alpha, ".6g").replace(".", "p")
         beta_tag = format(decision_beta, ".6g").replace(".", "p")
         score_directory = f"scores-alpha-{alpha_tag}-beta-{beta_tag}"
-    score_dir = (
-        project_root
-        / "data"
-        / "outputs"
-        / "causal-comparison"
-        / dataset_key
-        / score_directory
-    )
+    score_dir = scores_root / score_directory
     run_metrics_path = score_dir / "run_metrics.csv"
     summary_path = score_dir / "summary_mean_std.csv"
     _atomic_write_csv(run_metrics, run_metrics_path)

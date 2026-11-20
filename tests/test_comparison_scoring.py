@@ -254,6 +254,7 @@ def _write_fastcgc_fixture(
     seed: int,
     selected_edge: bool,
     regime: str = "reference",
+    results_dir: Path | None = None,
 ) -> None:
     dataset_key = "sparseVAR"
     dataset_id = f"var3-t20-p1-gaussian-seed{seed}"
@@ -293,14 +294,11 @@ def _write_fastcgc_fixture(
         encoding="utf-8",
     )
 
-    output_dir = (
-        project_root
-        / "data"
-        / "outputs"
-        / "causal-comparison"
-        / dataset_key
-        / "fast-cgc"
-    )
+    if results_dir is None:
+        results_dir = (
+            project_root / "data" / "outputs" / "causal-comparison" / dataset_key
+        )
+    output_dir = results_dir / "fast-cgc"
     adjacency = np.zeros_like(lag_truth)
     adjacency[0, 0, 1] = selected_edge
     scores = np.full(lag_truth.shape, 0.1)
@@ -404,6 +402,48 @@ def test_dataset_scoring_keeps_simulation_regimes_separate(tmp_path) -> None:
         "autocorrelation-0.95",
     }
     assert set(exact["expected"]) == {1}
+
+
+def test_scoped_scoring_reads_variant_and_preserves_linear_scores(tmp_path: Path) -> None:
+    legacy_root = tmp_path / "data" / "outputs" / "causal-comparison" / "sparseVAR"
+    variant_root = legacy_root / "dependence-tests" / "rcot"
+    scores_root = variant_root / "fast-cgc"
+    _write_fastcgc_fixture(tmp_path, seed=20, selected_edge=False)
+    _write_fastcgc_fixture(
+        tmp_path, seed=21, selected_edge=True, regime="autocorrelation-0.95"
+    )
+    _write_fastcgc_fixture(
+        tmp_path, seed=20, selected_edge=True, results_dir=variant_root
+    )
+    legacy = score_dataset_outputs(tmp_path, "sparseVAR", methods=("fast-cgc",))
+    legacy_tables = {
+        path: path.read_bytes() for path in (legacy.run_metrics_path, legacy.summary_path)
+    }
+
+    variant = score_dataset_outputs(
+        tmp_path,
+        "sparseVAR",
+        methods=("fast-cgc",),
+        results_dir=variant_root,
+        scores_root=scores_root,
+        regimes=("reference",),
+    )
+
+    assert variant.run_metrics_path == scores_root / "scores" / "run_metrics.csv"
+    assert variant.summary_path == scores_root / "scores" / "summary_mean_std.csv"
+    assert set(variant.run_metrics["regime"]) == {"reference"}
+    assert set(variant.run_metrics["status"]) == {"ok"}
+    assert set(variant.run_metrics["f1"]) == {1.0}
+    assert all(path.read_bytes() == content for path, content in legacy_tables.items())
+
+    with pytest.raises(ValueError, match="No frozen sparseVAR bundles match regimes"):
+        score_dataset_outputs(
+            tmp_path,
+            "sparseVAR",
+            methods=("fast-cgc",),
+            results_dir=variant_root,
+            regimes=("absent",),
+        )
 
 
 def _write_empirical_fixture(

@@ -276,7 +276,9 @@ from fastCGC.experiments.notebook_checkpoint import (
 '''
 
 
-def _settings(dataset: DatasetSpec, method: MethodSpec) -> str:
+def _settings(
+    dataset: DatasetSpec, method: MethodSpec, *, compare_dependence: bool = False
+) -> str:
     cedar_configuration = ""
     if method.key == "cedar":
         cedar_configuration = '''    "alpha_cond1": ALPHA,
@@ -293,15 +295,32 @@ def _settings(dataset: DatasetSpec, method: MethodSpec) -> str:
     "include_autoreg": True,
     "assume_ar1": True,
 '''
+    beta = 0.005 if compare_dependence else 0.001
+    output_scope = (
+        ' / "dependence-tests" / DEPENDENCE_VARIANT' if compare_dependence else ""
+    )
+    method_settings = (
+        "" if compare_dependence else "N_PERMUTATIONS = 1000\nBOOTSTRAP_SAMPLES = 200\n"
+    )
+    method_configuration = (
+        '''    "dependence_variant": DEPENDENCE_VARIANT,
+    "marginal_test": MARGINAL_TEST,
+    "conditional_test": CONDITIONAL_TEST,
+    "evaluation_policy": "full",
+    "regimes": REGIMES,
+'''
+        if compare_dependence
+        else '''    "n_permutations": N_PERMUTATIONS,
+    "bootstrap_samples": BOOTSTRAP_SAMPLES,
+'''
+    )
     return f'''
 DATASET_KEY = "{dataset.key}"
 METHOD_KEY = "{method.key}"
 MASTER_SEED = 42
 ALPHA = 0.01
-BETA = 0.001
-N_PERMUTATIONS = 1000
-BOOTSTRAP_SAMPLES = 200
-
+BETA = {beta}
+{method_settings}
 # Pause/resume boundary: one complete method/dataset fit.
 RESUME = True
 MAX_NEW_FITS: int | None = None
@@ -312,7 +331,7 @@ DATASET_DIR = (
 )
 OUTPUT_DIR = (
     PROJECT_ROOT / "data" / "outputs" / "causal-comparison"
-    / DATASET_KEY / METHOD_KEY
+    / DATASET_KEY{output_scope} / METHOD_KEY
 )
 CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
 NATIVE_OUTPUT_DIR = OUTPUT_DIR / "native"
@@ -324,14 +343,28 @@ RUN_CONFIGURATION = {{
     "master_seed": MASTER_SEED,
     "alpha": ALPHA,
     "beta": BETA,
-    "n_permutations": N_PERMUTATIONS,
-    "bootstrap_samples": BOOTSTRAP_SAMPLES,
-    "truth_scope": "{dataset.truth}",
+{method_configuration}    "truth_scope": "{dataset.truth}",
 {cedar_configuration}    **({{"native_output_schema": 2}} if METHOD_KEY.startswith("fast-") else {{}}),
 }}
 CONFIG_HASH = configuration_hash(RUN_CONFIGURATION)
 print(f"Dataset directory: {{DATASET_DIR}}")
 print(f"Output directory: {{OUTPUT_DIR}}")
+'''
+
+
+LOCAL_NATIVE_ARRAYS = r'''    arrays = {
+        "lag_adjacency": result.lag_adjacency,
+        "lag_scores": result.lag_scores,
+    }
+    if result.lag_pvalues is not None:
+        arrays["lag_pvalues"] = result.lag_pvalues
+    if result.lag_marginal_pvalues is not None:
+        arrays["lag_marginal_pvalues"] = result.lag_marginal_pvalues
+    if result.lag_conditional_pvalues is not None:
+        arrays["lag_conditional_pvalues"] = result.lag_conditional_pvalues
+    arrays["alpha"] = np.asarray(ALPHA)
+    arrays["beta"] = np.asarray(BETA)
+    arrays["ridge"] = np.asarray(result.metadata["ridge"])
 '''
 
 
@@ -357,19 +390,42 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
         seed=algorithm_seed,
         n_permutations=N_PERMUTATIONS,
     )
-    arrays = {
-        "lag_adjacency": result.lag_adjacency,
-        "lag_scores": result.lag_scores,
-    }
-    if result.lag_pvalues is not None:
-        arrays["lag_pvalues"] = result.lag_pvalues
-    if result.lag_marginal_pvalues is not None:
-        arrays["lag_marginal_pvalues"] = result.lag_marginal_pvalues
-    if result.lag_conditional_pvalues is not None:
-        arrays["lag_conditional_pvalues"] = result.lag_conditional_pvalues
-    arrays["alpha"] = np.asarray(ALPHA)
-    arrays["beta"] = np.asarray(BETA)
-    arrays["ridge"] = np.asarray(result.metadata["ridge"])
+''' + LOCAL_NATIVE_ARRAYS + '    return arrays\n'
+
+
+DEPENDENCE_RUNNER = r'''
+from time import perf_counter
+
+from fastCGC.experiments.dependence_comparison import fit_dependence_variant
+
+PACKAGE_ROOT = SOURCE_ROOT / "fastCGC"
+SOURCE_REVISION = "local-source:" + ":".join(
+    file_sha256(path)
+    for path in (
+        PACKAGE_ROOT / "core" / "fast_gc_star.py",
+        PACKAGE_ROOT / "experiments" / "causal_methods.py",
+        PACKAGE_ROOT / "experiments" / "dependence_comparison.py",
+        *sorted((PACKAGE_ROOT / "dependence").glob("*.py")),
+    )
+)
+
+
+def run_native(series, fit_order, algorithm_seed, run_dir):
+    started = perf_counter()
+    result = fit_dependence_variant(
+        METHOD_KEY,
+        series,
+        order=fit_order,
+        alpha=ALPHA,
+        beta=BETA,
+        seed=algorithm_seed,
+        variant=DEPENDENCE_VARIANT,
+    )
+    runtime_seconds = perf_counter() - started
+''' + LOCAL_NATIVE_ARRAYS + r'''    arrays["dependence_variant"] = np.asarray(DEPENDENCE_VARIANT)
+    arrays["marginal_test"] = np.asarray(MARGINAL_TEST)
+    arrays["conditional_test"] = np.asarray(CONDITIONAL_TEST)
+    arrays["runtime_seconds"] = np.asarray(runtime_seconds)
     return arrays
 '''
 
@@ -612,7 +668,7 @@ def run_native(series, fit_order, algorithm_seed, run_dir):
 '''
 
 
-EXECUTION = r'''
+EXECUTION_START = r'''
 bundle_paths = sorted(DATASET_DIR.glob("*.npz"))
 if not bundle_paths:
     raise FileNotFoundError(
@@ -627,7 +683,10 @@ for bundle_path in bundle_paths:
     if not metadata_path.is_file():
         raise FileNotFoundError(f"Missing metadata for {bundle_path}.")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    with np.load(bundle_path, allow_pickle=False) as stored:
+'''
+
+
+EXECUTION_FITS = r'''    with np.load(bundle_path, allow_pickle=False) as stored:
         series = np.asarray(stored["series"], dtype=float)
         if "lag_truth" in stored.files:
             default_order = int(stored["lag_truth"].shape[0])
@@ -708,6 +767,59 @@ if pause_requested:
 '''
 
 
+EXECUTION = EXECUTION_START + EXECUTION_FITS
+DEPENDENCE_EXECUTION = EXECUTION_START + r'''    if REGIMES is not None and metadata.get("regime") not in REGIMES:
+        continue
+''' + EXECUTION_FITS
+
+
+DEPENDENCE_SCORING = r'''
+from fastCGC.experiments.comparison_scoring import score_dataset_outputs
+
+artifacts = score_dataset_outputs(
+    PROJECT_ROOT,
+    DATASET_KEY,
+    methods=(METHOD_KEY,),
+    decision_alpha=ALPHA,
+    decision_beta=BETA,
+    results_dir=OUTPUT_DIR.parent,
+    scores_root=OUTPUT_DIR,
+    regimes=REGIMES,
+)
+print(f"{DEPENDENCE_VARIANT}: {MARGINAL_TEST} / {CONDITIONAL_TEST}")
+print(f"Run-level metrics: {artifacts.run_metrics_path}")
+print(f"Mean (SD) summary: {artifacts.summary_path}")
+artifacts.summary
+'''
+
+
+def _dependence_selection(dataset: DatasetSpec) -> str:
+    is_scm = dataset.key == "autocorrelatedSCM"
+    active_variant = "rff-hsic" if is_scm else "rcot"
+    lines = [
+        "from fastCGC.experiments.dependence_comparison import DEPENDENCE_TESTS"
+        + (", SCM_REGIMES" if is_scm else ""),
+        "",
+        "# Keep one of the following settings active. Rerun from this cell after switching.",
+    ]
+    for variant in ("linear", "rff-hsic", "rcot", "rff-hsic-rcot"):
+        prefix = "" if variant == active_variant else "# "
+        lines.append(f'{prefix}DEPENDENCE_VARIANT = "{variant}"')
+    regimes = (
+        'None if DEPENDENCE_VARIANT == "linear" else SCM_REGIMES'
+        if is_scm
+        else "None"
+    )
+    lines.extend(
+        (
+            "",
+            "MARGINAL_TEST, CONDITIONAL_TEST = DEPENDENCE_TESTS[DEPENDENCE_VARIANT]",
+            f"REGIMES = {regimes}",
+        )
+    )
+    return "\n".join(lines)
+
+
 def _runner(method: MethodSpec) -> str:
     if method.key.startswith("fast-"):
         return LOCAL_RUNNER
@@ -725,6 +837,10 @@ def _runner(method: MethodSpec) -> str:
 
 
 def _method_notebook(dataset: DatasetSpec, method: MethodSpec) -> dict[str, Any]:
+    compare_dependence = (
+        dataset.key in {"autocorrelatedSCM", "lorenz96"}
+        and method.key in {"fast-cgc", "fast-cgc-star"}
+    )
     downstream = (
         "common graph-orientation conversion and recovery scoring"
         if dataset.evaluation == "recovery"
@@ -738,6 +854,8 @@ def _method_notebook(dataset: DatasetSpec, method: MethodSpec) -> dict[str, Any]
             "qualitatively; recovery metrics are not required."
         )
     )
+    if compare_dependence:
+        evaluation_statement = "Each native archive records wall time for the fit."
     introduction = f'''
 # {method.label} on {dataset.label}
 
@@ -750,6 +868,32 @@ distribution when upstream is packageable; repository-only methods call a
 verified checkout. Their estimator code is neither copied nor reimplemented
 here. Native arrays are saved before {downstream}. {evaluation_statement}
 '''
+    if compare_dependence:
+        scope = (
+            "Nonlinear fits use the reference, mixed-link, and cross-link-null regimes.\n"
+            "Select `linear` to rerun the full grid."
+            if dataset.key == "autocorrelatedSCM"
+            else "All settings use the full Lorenz-96 grid."
+        )
+        introduction += f'''
+The setup cell selects a dependence-test pair. {scope}
+Fits use the original algorithm seeds and lag orders. Native p-values and
+score tables go under `dependence-tests/<variant>/{method.key}/`. The `linear`
+option reruns the manuscript's dependence tests in that directory tree.
+
+The score tables use the manuscript thresholds as a common reference point.
+Calibration of the nonlinear tests for autocorrelated data requires a separate
+check before interpreting thresholded recovery.
+'''
+        return _notebook([
+            _markdown(introduction),
+            _code(COMMON_IMPORTS),
+            _code(_dependence_selection(dataset)),
+            _code(_settings(dataset, method, compare_dependence=True)),
+            _code(DEPENDENCE_RUNNER),
+            _code(DEPENDENCE_EXECUTION),
+            _code(DEPENDENCE_SCORING),
+        ])
     return _notebook(
         [
             _markdown(introduction),

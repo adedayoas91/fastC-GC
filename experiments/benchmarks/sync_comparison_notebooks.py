@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+from textwrap import indent
 from typing import Any
 
 
@@ -279,6 +280,34 @@ from fastCGC.experiments.notebook_checkpoint import (
 def _settings(
     dataset: DatasetSpec, method: MethodSpec, *, compare_dependence: bool = False
 ) -> str:
+    beta = 0.005 if compare_dependence and dataset.evaluation == "recovery" else 0.001
+    method_settings = (
+        "" if compare_dependence else "N_PERMUTATIONS = 1000\nBOOTSTRAP_SAMPLES = 200\n"
+    )
+    settings = f'''
+DATASET_KEY = "{dataset.key}"
+METHOD_KEY = "{method.key}"
+MASTER_SEED = 42
+ALPHA = 0.01
+BETA = {beta}
+{method_settings}
+# Pause/resume boundary: one complete method/dataset fit.
+RESUME = True
+MAX_NEW_FITS: int | None = None
+
+DATASET_DIR = (
+    PROJECT_ROOT / "data" / "shared" / "causal-comparison"
+    / DATASET_KEY / "datasets"
+)
+'''
+    if compare_dependence:
+        return settings
+    return settings + _output_settings(dataset, method)
+
+
+def _output_settings(
+    dataset: DatasetSpec, method: MethodSpec, *, compare_dependence: bool = False
+) -> str:
     cedar_configuration = ""
     if method.key == "cedar":
         cedar_configuration = '''    "alpha_cond1": ALPHA,
@@ -295,12 +324,8 @@ def _settings(
     "include_autoreg": True,
     "assume_ar1": True,
 '''
-    beta = 0.005 if compare_dependence else 0.001
     output_scope = (
         ' / "dependence-tests" / DEPENDENCE_VARIANT' if compare_dependence else ""
-    )
-    method_settings = (
-        "" if compare_dependence else "N_PERMUTATIONS = 1000\nBOOTSTRAP_SAMPLES = 200\n"
     )
     method_configuration = (
         '''    "dependence_variant": DEPENDENCE_VARIANT,
@@ -314,22 +339,7 @@ def _settings(
     "bootstrap_samples": BOOTSTRAP_SAMPLES,
 '''
     )
-    return f'''
-DATASET_KEY = "{dataset.key}"
-METHOD_KEY = "{method.key}"
-MASTER_SEED = 42
-ALPHA = 0.01
-BETA = {beta}
-{method_settings}
-# Pause/resume boundary: one complete method/dataset fit.
-RESUME = True
-MAX_NEW_FITS: int | None = None
-
-DATASET_DIR = (
-    PROJECT_ROOT / "data" / "shared" / "causal-comparison"
-    / DATASET_KEY / "datasets"
-)
-OUTPUT_DIR = (
+    return f'''OUTPUT_DIR = (
     PROJECT_ROOT / "data" / "outputs" / "causal-comparison"
     / DATASET_KEY{output_scope} / METHOD_KEY
 )
@@ -678,7 +688,10 @@ if not bundle_paths:
 
 new_fits = 0
 pause_requested = False
-for bundle_path in bundle_paths:
+'''
+
+
+EXECUTION_BUNDLES = r'''for bundle_path in bundle_paths:
     metadata_path = bundle_path.with_suffix(".json")
     if not metadata_path.is_file():
         raise FileNotFoundError(f"Missing metadata for {bundle_path}.")
@@ -761,21 +774,22 @@ EXECUTION_FITS = r'''    with np.load(bundle_path, allow_pickle=False) as stored
         )
         print(f"{bundle_path.stem}: failed: {error}")
 
-print(f"Completed {new_fits} new fits in this session.")
+'''
+
+
+EXECUTION_REPORT = r'''print(f"Completed {new_fits} new fits in this session.")
 if pause_requested:
     print("Rerun this cell to resume at the next unfinished dataset.")
 '''
 
 
-EXECUTION = EXECUTION_START + EXECUTION_FITS
-DEPENDENCE_EXECUTION = EXECUTION_START + r'''    if REGIMES is not None and metadata.get("regime") not in REGIMES:
+EXECUTION = EXECUTION_START + EXECUTION_BUNDLES + EXECUTION_FITS + EXECUTION_REPORT
+DEPENDENCE_REGIME_FILTER = r'''    if REGIMES is not None and metadata.get("regime") not in REGIMES:
         continue
-''' + EXECUTION_FITS
+'''
 
 
 DEPENDENCE_SCORING = r'''
-from fastCGC.experiments.comparison_scoring import score_dataset_outputs
-
 artifacts = score_dataset_outputs(
     PROJECT_ROOT,
     DATASET_KEY,
@@ -786,38 +800,99 @@ artifacts = score_dataset_outputs(
     scores_root=OUTPUT_DIR,
     regimes=REGIMES,
 )
-print(f"{DEPENDENCE_VARIANT}: {MARGINAL_TEST} / {CONDITIONAL_TEST}")
 print(f"Run-level metrics: {artifacts.run_metrics_path}")
 print(f"Mean (SD) summary: {artifacts.summary_path}")
-artifacts.summary
+display(artifacts.summary)
+'''
+
+
+DEPENDENCE_GRAPH_REPORTING = r'''
+for variant, output_dir in variant_outputs:
+    archived_linear_dir = PROJECT_ROOT / "data" / "outputs" / "causal-comparison" / DATASET_KEY
+    rerun_linear_dir = output_dir.parent.parent / "linear"
+    artifacts = collect_dataset_graphs(
+        PROJECT_ROOT,
+        DATASET_KEY,
+        methods=(METHOD_KEY,),
+        results_dir=output_dir.parent,
+        graphs_root=output_dir,
+        linear_results_dirs=(archived_linear_dir, rerun_linear_dir),
+    )
+    print(f"{variant} inferred edges: {artifacts.edge_table_path}")
+    print(f"{variant} graph agreement and fit status: {artifacts.status_table_path}")
+    display(artifacts.status_table)
 '''
 
 
 def _dependence_selection(dataset: DatasetSpec) -> str:
-    is_scm = dataset.key == "autocorrelatedSCM"
-    active_variant = "rff-hsic" if is_scm else "rcot"
-    lines = [
-        "from fastCGC.experiments.dependence_comparison import DEPENDENCE_TESTS"
-        + (", SCM_REGIMES" if is_scm else ""),
-        "",
-        "# Keep one of the following settings active. Rerun from this cell after switching.",
-    ]
-    for variant in ("linear", "rff-hsic", "rcot", "rff-hsic-rcot"):
-        prefix = "" if variant == active_variant else "# "
-        lines.append(f'{prefix}DEPENDENCE_VARIANT = "{variant}"')
-    regimes = (
-        'None if DEPENDENCE_VARIANT == "linear" else SCM_REGIMES'
-        if is_scm
-        else "None"
+    variants = ["rff-hsic", "rcot"]
+    if dataset.key in {"lorenz96", "dream3"}:
+        variants.reverse()
+    entries = "".join(f'    "{variant}",\n' for variant in (*variants, "rff-hsic-rcot"))
+    return f'''
+from fastCGC.experiments.dependence_comparison import DEPENDENCE_TESTS, SCM_REGIMES
+
+# Remove or reorder entries. Uncomment "linear" for a fresh baseline run.
+DEPENDENCE_VARIANTS = [
+{entries}    # "linear",
+]
+
+if not DEPENDENCE_VARIANTS:
+    raise ValueError("Select at least one dependence variant.")
+unknown = set(DEPENDENCE_VARIANTS) - DEPENDENCE_TESTS.keys()
+if unknown:
+    raise ValueError(f"Unknown dependence variants: {{sorted(unknown)}}")
+if len(DEPENDENCE_VARIANTS) != len(set(DEPENDENCE_VARIANTS)):
+    raise ValueError("Each dependence variant may appear only once.")
+'''
+
+
+def _dependence_execution(dataset: DatasetSpec, method: MethodSpec) -> str:
+    if dataset.evaluation == "recovery":
+        batch_start = r'''
+from fastCGC.experiments.comparison_scoring import score_dataset_outputs
+'''
+        per_variant_report = DEPENDENCE_SCORING
+        batch_report = ""
+    else:
+        batch_start = r'''
+from fastCGC.experiments.comparison_scoring import collect_dataset_graphs
+
+variant_outputs = []
+'''
+        per_variant_report = "variant_outputs.append((DEPENDENCE_VARIANT, OUTPUT_DIR))\n"
+        batch_report = DEPENDENCE_GRAPH_REPORTING
+    variant_setup = r'''    if MAX_NEW_FITS is not None and new_fits >= MAX_NEW_FITS:
+        pause_requested = True
+        break
+    MARGINAL_TEST, CONDITIONAL_TEST = DEPENDENCE_TESTS[DEPENDENCE_VARIANT]
+    REGIMES = (
+        SCM_REGIMES if DATASET_KEY == "autocorrelatedSCM" and DEPENDENCE_VARIANT != "linear"
+        else None
     )
-    lines.extend(
-        (
-            "",
-            "MARGINAL_TEST, CONDITIONAL_TEST = DEPENDENCE_TESTS[DEPENDENCE_VARIANT]",
-            f"REGIMES = {regimes}",
-        )
+    print(f"{DEPENDENCE_VARIANT}: {MARGINAL_TEST} / {CONDITIONAL_TEST}")
+'''
+    variant_body = (
+        _output_settings(dataset, method, compare_dependence=True)
+        + "\n"
+        + EXECUTION_BUNDLES
+        + DEPENDENCE_REGIME_FILTER
+        + EXECUTION_FITS
+        + per_variant_report
+        + r'''if pause_requested:
+    break
+
+'''
     )
-    return "\n".join(lines)
+    return (
+        batch_start
+        + EXECUTION_START
+        + "for DEPENDENCE_VARIANT in DEPENDENCE_VARIANTS:\n"
+        + variant_setup
+        + indent(variant_body, "    ")
+        + batch_report
+        + EXECUTION_REPORT
+    )
 
 
 def _runner(method: MethodSpec) -> str:
@@ -838,7 +913,7 @@ def _runner(method: MethodSpec) -> str:
 
 def _method_notebook(dataset: DatasetSpec, method: MethodSpec) -> dict[str, Any]:
     compare_dependence = (
-        dataset.key in {"autocorrelatedSCM", "lorenz96"}
+        dataset.key in {"autocorrelatedSCM", "lorenz96", "dream3", "causalChamber"}
         and method.key in {"fast-cgc", "fast-cgc-star"}
     )
     downstream = (
@@ -871,19 +946,30 @@ here. Native arrays are saved before {downstream}. {evaluation_statement}
     if compare_dependence:
         scope = (
             "Nonlinear fits use the reference, mixed-link, and cross-link-null regimes.\n"
-            "Select `linear` to rerun the full grid."
+            "Include `linear` to rerun the full grid."
             if dataset.key == "autocorrelatedSCM"
-            else "All settings use the full Lorenz-96 grid."
+            else "All settings use the full set of frozen bundles."
+        )
+        report = (
+            "The score tables use the manuscript thresholds as a common reference point.\n"
+            "Calibration of the nonlinear tests for autocorrelated data requires a separate\n"
+            "check before interpreting thresholded recovery."
+            if dataset.evaluation == "recovery"
+            else (
+                "The graph exports use the same thresholds as the archived wind-tunnel fits\n"
+                "(alpha 0.01, beta 0.001). The status table reports edge counts and directed\n"
+                "overlap with the matched linear graph when available. The physical reference\n"
+                "is exported for context. Agreement measures sensitivity to the dependence\n"
+                "test on this recording."
+            )
         )
         introduction += f'''
-The setup cell selects a dependence-test pair. {scope}
+The setup cell lists the dependence-test pairs to run in order. {scope}
 Fits use the original algorithm seeds and lag orders. Native p-values and
-score tables go under `dependence-tests/<variant>/{method.key}/`. The `linear`
+reports go under `dependence-tests/<variant>/{method.key}/`. The `linear`
 option reruns the manuscript's dependence tests in that directory tree.
 
-The score tables use the manuscript thresholds as a common reference point.
-Calibration of the nonlinear tests for autocorrelated data requires a separate
-check before interpreting thresholded recovery.
+{report}
 '''
         return _notebook([
             _markdown(introduction),
@@ -891,8 +977,7 @@ check before interpreting thresholded recovery.
             _code(_dependence_selection(dataset)),
             _code(_settings(dataset, method, compare_dependence=True)),
             _code(DEPENDENCE_RUNNER),
-            _code(DEPENDENCE_EXECUTION),
-            _code(DEPENDENCE_SCORING),
+            _code(_dependence_execution(dataset, method)),
         ])
     return _notebook(
         [

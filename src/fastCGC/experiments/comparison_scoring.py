@@ -137,6 +137,14 @@ STATUS_COLUMNS = (
     "error",
 )
 
+LINEAR_AGREEMENT_COLUMNS = (
+    "linear_status",
+    "linear_edge_count",
+    "jaccard_vs_linear",
+    "edges_added_vs_linear",
+    "edges_removed_vs_linear",
+)
+
 REFERENCE_EDGE_COLUMNS = (
     "dataset",
     "dataset_id",
@@ -652,11 +660,54 @@ def _named_edges(
     return rows
 
 
+def _read_empirical_graph(
+    project_root: Path,
+    results_dir: Path,
+    *,
+    dataset_key: str,
+    dataset_id: str,
+    method: str,
+    dataset_digest: str,
+    fit_order: int,
+    n_variables: int,
+) -> tuple[str, str, NormalizedOutput | None]:
+    path = results_dir / method / "checkpoints" / f"{dataset_id}.json"
+    if not path.is_file():
+        return "missing", "checkpoint not found", None
+
+    checkpoint = read_checkpoint(path)
+    _validate_checkpoint(
+        checkpoint,
+        dataset_key=dataset_key,
+        dataset_id=dataset_id,
+        method=method,
+        dataset_digest=dataset_digest,
+        fit_order=fit_order,
+    )
+    if checkpoint.get("status") != "ok":
+        return (
+            str(checkpoint.get("status", "failed")),
+            str(checkpoint.get("error", "fit did not complete")),
+            None,
+        )
+
+    native = _load_native_output(project_root, checkpoint)
+    for output in normalize_native_output(
+        method, native, fit_order=fit_order, n_variables=n_variables
+    ):
+        if output.estimand == "aggregate-any-lag":
+            return "ok", "", output
+    raise ValueError(f"{method} did not return an aggregate graph for {dataset_id}.")
+
+
 def collect_dataset_graphs(
     project_root: Path,
     dataset_key: str,
     *,
     methods: Sequence[str] = METHODS,
+    results_dir: Path | None = None,
+    graphs_root: Path | None = None,
+    linear_results_dirs: Sequence[Path] = (),
 ) -> GraphArtifacts:
     """Collect empirical inferred graphs without requiring a truth matrix.
 
@@ -664,7 +715,11 @@ def collect_dataset_graphs(
     by the simulation scorer. It exports aggregate cross-variable edges for
     visualization and keeps missing or failed fits in a separate status table.
     A bundle may include a ``reference_graph`` for a contextual panel, but that
-    graph is never scored by this function.
+    graph is never scored by this function. ``results_dir`` locates method
+    archives, and ``graphs_root`` controls where the ``graphs`` folder is
+    written. When ``linear_results_dirs`` is supplied, the status table
+    compares each selected graph to the first successful linear archive for
+    the same method and dataset, using their saved decisions.
     """
 
     project_root = Path(project_root).resolve()
@@ -675,6 +730,13 @@ def collect_dataset_graphs(
     if len(requested_methods) != len(set(requested_methods)):
         raise ValueError("methods must not contain duplicates.")
 
+    results_dir = (
+        project_root / "data" / "outputs" / "causal-comparison" / dataset_key
+        if results_dir is None
+        else Path(results_dir)
+    )
+    graphs_root = results_dir if graphs_root is None else Path(graphs_root)
+    linear_roots = tuple(Path(root) for root in linear_results_dirs)
     dataset_dir = (
         project_root
         / "data"
@@ -746,87 +808,71 @@ def collect_dataset_graphs(
                 )
 
         for method in requested_methods:
-            checkpoint_path = (
-                project_root
-                / "data"
-                / "outputs"
-                / "causal-comparison"
-                / dataset_key
-                / method
-                / "checkpoints"
-                / f"{dataset_id}.json"
+            fit_identity = {
+                "dataset_key": dataset_key,
+                "dataset_id": dataset_id,
+                "method": method,
+                "dataset_digest": observed_digest,
+                "fit_order": fit_order,
+                "n_variables": n_variables,
+            }
+            status, error, aggregate = _read_empirical_graph(
+                project_root, results_dir, **fit_identity
             )
-            status = "missing"
-            error = "checkpoint not found"
-            edge_count = 0
-            if checkpoint_path.is_file():
-                checkpoint = read_checkpoint(checkpoint_path)
-                _validate_checkpoint(
-                    checkpoint,
-                    dataset_key=dataset_key,
-                    dataset_id=dataset_id,
-                    method=method,
-                    dataset_digest=observed_digest,
-                    fit_order=fit_order,
+            named_edges = (
+                _named_edges(
+                    aggregate.selected,
+                    variable_names=variable_names,
+                    scores=aggregate.scores,
                 )
-                if checkpoint.get("status") == "ok":
-                    native = _load_native_output(project_root, checkpoint)
-                    normalized = normalize_native_output(
-                        method,
-                        native,
-                        fit_order=fit_order,
-                        n_variables=n_variables,
-                    )
-                    aggregate = next(
-                        (
-                            output
-                            for output in normalized
-                            if output.estimand == "aggregate-any-lag"
-                        ),
-                        None,
-                    )
-                    if aggregate is None:
-                        raise ValueError(
-                            f"{method} did not return an aggregate graph for {dataset_id}."
-                        )
-                    named_edges = _named_edges(
-                        aggregate.selected,
-                        variable_names=variable_names,
-                        scores=aggregate.scores,
-                    )
-                    edge_count = len(named_edges)
-                    for row in named_edges:
-                        edge_rows.append(
-                            {
-                                "dataset": dataset_key,
-                                "dataset_id": dataset_id,
-                                "method": method,
-                                **row,
-                            }
-                        )
-                    status = "ok"
-                    error = ""
-                else:
-                    status = str(checkpoint.get("status", "failed"))
-                    error = str(checkpoint.get("error", "fit did not complete"))
-
-            status_rows.append(
-                {
-                    "dataset": dataset_key,
-                    "dataset_id": dataset_id,
-                    "method": method,
-                    "status": status,
-                    "n_variables": n_variables,
-                    "n_samples": n_samples,
-                    "fit_order": fit_order,
-                    "regime": regime,
-                    "edge_count": edge_count,
-                    "error": error,
-                }
+                if aggregate is not None
+                else []
             )
+            edge_rows.extend(
+                {"dataset": dataset_key, "dataset_id": dataset_id, "method": method, **row}
+                for row in named_edges
+            )
+
+            status_row = {
+                "dataset": dataset_key,
+                "dataset_id": dataset_id,
+                "method": method,
+                "status": status,
+                "n_variables": n_variables,
+                "n_samples": n_samples,
+                "fit_order": fit_order,
+                "regime": regime,
+                "edge_count": len(named_edges),
+                "error": error,
+            }
+            if linear_roots:
+                status_row.update(dict.fromkeys(LINEAR_AGREEMENT_COLUMNS, np.nan))
+                status_row["linear_status"] = "missing"
+                for linear_root in linear_roots:
+                    linear_status, _, linear_graph = _read_empirical_graph(
+                        project_root, linear_root, **fit_identity
+                    )
+                    if linear_status != "missing":
+                        status_row["linear_status"] = linear_status
+                    if linear_graph is None:
+                        continue
+                    cross = ~np.eye(n_variables, dtype=bool)
+                    linear_edges = linear_graph.selected & cross
+                    status_row["linear_edge_count"] = int(linear_edges.sum())
+                    if aggregate is not None:
+                        edges = aggregate.selected & cross
+                        union = int((edges | linear_edges).sum())
+                        status_row["jaccard_vs_linear"] = (
+                            float((edges & linear_edges).sum()) / union if union else 1.0
+                        )
+                        status_row["edges_added_vs_linear"] = int((edges & ~linear_edges).sum())
+                        status_row["edges_removed_vs_linear"] = int((linear_edges & ~edges).sum())
+                    break
+            status_rows.append(status_row)
 
     edge_table = pd.DataFrame(edge_rows, columns=EDGE_COLUMNS)
-    status_table = pd.DataFrame(status_rows, columns=STATUS_COLUMNS).sort_values(
+    columns = STATUS_COLUMNS + (LINEAR_AGREEMENT_COLUMNS if linear_roots else ())
+    status_table = pd.DataFrame(status_rows, columns=columns).sort_values(
         ["dataset_id", "method"],
         kind="stable",
         ignore_index=True,
@@ -848,14 +894,7 @@ def collect_dataset_graphs(
             ignore_index=True,
         )
 
-    graph_dir = (
-        project_root
-        / "data"
-        / "outputs"
-        / "causal-comparison"
-        / dataset_key
-        / "graphs"
-    )
+    graph_dir = graphs_root / "graphs"
     edge_table_path = graph_dir / "inferred_edges.csv"
     status_table_path = graph_dir / "run_status.csv"
     reference_edges_path = graph_dir / "reference_edges.csv"

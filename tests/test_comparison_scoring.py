@@ -450,6 +450,8 @@ def _write_empirical_fixture(
     project_root: Path,
     *,
     include_reference: bool,
+    results_dir: Path | None = None,
+    edges: tuple[tuple[int, int], ...] = ((0, 1),),
 ) -> None:
     dataset_key = "measurements"
     dataset_id = "measured-system-1"
@@ -486,18 +488,16 @@ def _write_empirical_fixture(
         encoding="utf-8",
     )
 
-    output_dir = (
-        project_root
-        / "data"
-        / "outputs"
-        / "causal-comparison"
-        / dataset_key
-        / "fast-cgc"
-    )
+    if results_dir is None:
+        results_dir = (
+            project_root / "data" / "outputs" / "causal-comparison" / dataset_key
+        )
+    output_dir = results_dir / "fast-cgc"
     adjacency = np.zeros((1, 3, 3), dtype=bool)
-    adjacency[0, 0, 1] = True
     scores = np.zeros((1, 3, 3), dtype=float)
-    scores[0, 0, 1] = 0.75
+    for source, target in edges:
+        adjacency[0, source, target] = True
+        scores[0, source, target] = 0.75
     native_path = output_dir / "native" / f"{dataset_id}.npz"
     native_digest = write_npz_checkpoint(
         native_path,
@@ -562,3 +562,41 @@ def test_empirical_collector_exports_reference_network_separately(tmp_path) -> N
     assert reference["source"] == "downstream"
     assert reference["target"] == "middle"
     assert "method" not in result.reference_edges.columns
+
+
+def test_empirical_variant_reports_directed_agreement_in_its_own_directory(
+    tmp_path: Path,
+) -> None:
+    linear_root = tmp_path / "data/outputs/causal-comparison/measurements"
+    variant_root = linear_root / "dependence-tests/rcot"
+    _write_empirical_fixture(tmp_path, include_reference=True)
+    _write_empirical_fixture(
+        tmp_path,
+        include_reference=True,
+        results_dir=variant_root,
+        edges=((0, 1), (1, 0), (1, 1)),
+    )
+    legacy = collect_dataset_graphs(tmp_path, "measurements", methods=("fast-cgc",))
+    legacy_status = legacy.status_table_path.read_bytes()
+
+    report = collect_dataset_graphs(
+        tmp_path,
+        "measurements",
+        methods=("fast-cgc", "fast-cgc-star"),
+        results_dir=variant_root,
+        graphs_root=variant_root / "fast-cgc",
+        linear_results_dirs=(linear_root / "missing", linear_root),
+    )
+
+    status = report.status_table.set_index("method")
+    fit = status.loc["fast-cgc"]
+    assert fit["edge_count"] == 2
+    assert fit["linear_edge_count"] == 1
+    assert fit["edges_added_vs_linear"] == 1
+    assert fit["edges_removed_vs_linear"] == 0
+    assert fit["jaccard_vs_linear"] == 0.5
+    assert status.loc["fast-cgc-star", "linear_status"] == "missing"
+    assert np.isnan(status.loc["fast-cgc-star", "jaccard_vs_linear"])
+    assert report.status_table_path == variant_root / "fast-cgc/graphs/run_status.csv"
+    assert legacy.status_table_path.read_bytes() == legacy_status
+    assert "jaccard_vs_linear" not in legacy.status_table.columns

@@ -135,9 +135,11 @@ completed work. Set `MAX_NEW_FITS` to a positive integer for a bounded session.
 
 ## Dependence-test comparisons
 
-The `fastC-GC.ipynb` and `fastC-GC-star.ipynb` notebooks in `autocorrelatedSCM/`
-and `lorenz96/` each have a setup cell with one active `DEPENDENCE_VARIANT`.
-Uncomment one setting, comment the previous choice, and rerun from that cell.
+The `fastC-GC.ipynb` and `fastC-GC-star.ipynb` notebooks in `autocorrelatedSCM/`,
+`lorenz96/`, `dream3/`, and `causalChamber/` each have an editable
+`DEPENDENCE_VARIANTS` list. Remove or reorder entries and run the notebook.
+It processes every remaining entry in order. Uncomment `"linear"` to run a
+fresh baseline.
 
 | Setting | Marginal test | Conditional test |
 | --- | --- | --- |
@@ -147,19 +149,31 @@ Uncomment one setting, comment the previous choice, and rerun from that cell.
 | `rff-hsic-rcot` | RFF-HSIC | RCoT |
 
 The SCM notebooks use the reference, mixed-link, and cross-link-null regimes
-for nonlinear variants and the full grid for `linear`. The Lorenz–96
-notebooks use the full grid. Both use the existing frozen
-bundles, lag orders, and algorithm seeds. The notebooks save checkpoints,
+for nonlinear variants and the full grid for `linear`. The other notebooks
+use all frozen bundles in their dataset. Fits use the existing lag orders
+and algorithm seeds. The notebooks save checkpoints,
 component p-values, and wall time per fit under
 `data/outputs/causal-comparison/<dataset>/dependence-tests/<variant>/<method>/`.
 A `linear` rerun also saves there, leaving the original fits and score tables
-available for comparison. The final cell writes `run_metrics.csv` and
-`summary_mean_std.csv` beneath the selected method's output directory.
+available for comparison. Set `MAX_NEW_FITS` to cap the total number of new
+successful fits across the list. Rerun the final cell to resume from saved
+checkpoints. DREAM3 has 100 variables per bundle, so each nonlinear fit can
+take substantially longer than a linear fit.
 
-The score tables use the manuscript reference thresholds (`0.01`, `0.005`).
+SCM, Lorenz–96, and DREAM3 write `run_metrics.csv` and `summary_mean_std.csv`
+beneath each variant's method directory using the manuscript thresholds
+(`0.01`, `0.005`). DREAM3 and Lorenz–96 use aggregate graph recovery.
 Check nonlinear-test calibration on autocorrelated null data before
 interpreting thresholded results. Compare runs on matching dataset IDs and
 estimands.
+
+Causal Chambers uses the archived wind-tunnel thresholds (`0.01`, `0.001`).
+Each variant writes `graphs/inferred_edges.csv`, `graphs/run_status.csv`, and
+`graphs/reference_edges.csv`. The status table shows counts of added and
+removed directed edges and Jaccard overlap with the archived linear fit, or
+with a fresh `linear` fit when the archive is unavailable. These are measures
+of graph agreement. The physical reference network provides context for the
+inferred edges.
 
 Regenerate the committed notebooks after changing their shared templates:
 

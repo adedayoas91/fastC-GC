@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from fastCGC.experiments.notebook_checkpoint import (
+    configuration_hash,
+    derive_algorithm_seed,
+    reusable_success,
+    write_checkpoint,
+    write_npz_checkpoint,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -137,6 +150,88 @@ def test_fast_notebooks_archive_rethresholdable_component_pvalues() -> None:
             assert 'arrays["lag_conditional_pvalues"]' in source
             assert 'arrays["ridge"]' in source
             assert '"causal_methods.py"' in source
+
+
+@pytest.mark.parametrize("dataset", ("lorenz96", "dream3", "causalChamber"))
+def test_dependence_variant_list_resumes_with_a_shared_fit_limit(
+    tmp_path: Path, dataset: str
+) -> None:
+    path = DATASET_ROOTS[dataset] / "fastC-GC.ipynb"
+    notebook = json.loads(path.read_text(encoding="utf-8"))
+    sources = [
+        "".join(cell["source"])
+        for cell in notebook["cells"]
+        if cell["cell_type"] == "code"
+    ]
+    empirical = dataset == "causalChamber"
+    truth_key = "reference_graph" if empirical else "aggregate_truth"
+    bundle_dir = tmp_path / "data/shared/causal-comparison" / dataset / "datasets"
+    bundle_dir.mkdir(parents=True)
+    series = np.arange(24, dtype=float).reshape(2, 12)
+    truth = np.array([[False, True], [False, False]])
+    np.savez(bundle_dir / "example.npz", series=series, **{truth_key: truth})
+    metadata = {
+        "dataset_id": "example",
+        "data_digest": hashlib.sha256(series.tobytes()).hexdigest(),
+        "fit_order": 1,
+    }
+    (bundle_dir / "example.json").write_text(json.dumps(metadata), encoding="utf-8")
+
+    fitted: list[str] = []
+    namespace = {
+        "PROJECT_ROOT": tmp_path,
+        "SOURCE_REVISION": "test-source",
+        "hashlib": hashlib,
+        "json": json,
+        "np": np,
+        "display": lambda summary: None,
+        "configuration_hash": configuration_hash,
+        "derive_algorithm_seed": derive_algorithm_seed,
+        "reusable_success": reusable_success,
+        "write_checkpoint": write_checkpoint,
+        "write_npz_checkpoint": write_npz_checkpoint,
+    }
+
+    def run_native(
+        _series: np.ndarray, _order: int, _seed: int, _run_dir: Path
+    ) -> dict[str, np.ndarray]:
+        fitted.append(namespace["DEPENDENCE_VARIANT"])
+        return {
+            "lag_adjacency": np.zeros((1, 2, 2), dtype=bool),
+            "lag_scores": np.zeros((1, 2, 2)),
+            "lag_marginal_pvalues": np.ones((1, 2, 2)),
+            "lag_conditional_pvalues": np.ones((1, 2, 2)),
+        }
+
+    exec(sources[1], namespace)
+    exec(sources[2], namespace)
+    second_variant = "linear" if empirical else "rff-hsic"
+    namespace.update(
+        DEPENDENCE_VARIANTS=["rcot", second_variant], MAX_NEW_FITS=1, run_native=run_native
+    )
+    assert namespace["BETA"] == (0.001 if empirical else 0.005)
+    output = tmp_path / "data/outputs/causal-comparison" / dataset / "dependence-tests"
+    exec(sources[-1], namespace)
+    assert fitted == ["rcot"]
+    assert not (output / second_variant).exists()
+    checkpoint = output / "rcot/fast-cgc/checkpoints/example.json"
+    first = checkpoint.read_bytes()
+
+    exec(sources[-1], namespace)
+    assert fitted == ["rcot", second_variant]
+    assert checkpoint.read_bytes() == first
+    for variant in fitted:
+        method_output = output / variant / "fast-cgc"
+        if empirical:
+            status = pd.read_csv(method_output / "graphs/run_status.csv").iloc[0]
+            assert status["linear_status"] == "ok"
+            assert status["jaccard_vs_linear"] == 1.0
+            assert (method_output / "graphs/inferred_edges.csv").is_file()
+        else:
+            scores = method_output / "scores-alpha-0p01-beta-0p005"
+            assert (scores / "run_metrics.csv").is_file()
+            assert (scores / "summary_mean_std.csv").is_file()
+    assert not (output / "rff-hsic-rcot").exists()
 
 
 def test_tigramite_notebooks_use_installed_distribution() -> None:
